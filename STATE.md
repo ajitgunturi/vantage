@@ -26,19 +26,24 @@
 - [ ] Implement collector→Postgres, streamer→CSV loop, API gateway endpoints — TDD
 - [ ] Perf harness (producer/consumer ratios)
 
-## Workflow reminder
-- main is protected: all changes via PR from feat/* branches; `ci-success` must be green to merge.
-- Build/CI/test infra rides on `feat/k8s-infra`. Module logic rides on its own feat/<module> branch.
+## Workflow reminder (simplified — ADR-0008)
+- Only `main` is protected (PR + `ci-success` to merge). No long-lived feature branches.
+- Work on ephemeral branches (feat/*, fix/*, chore/*) → PR to main → merge when green → delete.
+- CI behaviour unchanged: PR→main and merge→main both build/test/lint/cover.
 - Run `make hooks` once per clone to install the pre-commit hook.
 
-## Decisions made (see docs/adr)
-- Multi-module monorepo + go.work (ADR-0003); gRPC transport (ADR-0004); kind (ADR-0005); buf (ADR-0006).
-- Custom MQ = independent service w/ append-only segment-log durability (ADR-0001); Postgres for data (ADR-0002).
-- Canonical GPU id = `uuid` (ADR-0005, Proposed — needs confirm). Tooling (kind/buf) + name (vantage) → PROMPT_HISTORY, not ADRs.
+## Architecture decisions (docs/adr — architecture only)
+- ADR-0001 Custom MQ = independent service w/ append-only segment-log durability.
+- ADR-0002 PostgreSQL for collector data.
+- ADR-0003 Multi-module monorepo + go.work.
+- ADR-0004 gRPC streaming transport.
+- ADR-0005 Canonical GPU id = `uuid` (**Proposed** — confirm before freezing DB schema).
+- Process (branching, CI, TDD/coverage, hooks) lives in BRANCHING.md / Makefile / CI, not ADRs.
+- Tooling (kind, buf) + name (vantage) recorded in PROMPT_HISTORY, not ADRs.
 
 ## Open questions
 - ADR-0005 (GPU id = UUID) still **Proposed** — confirm before freezing DB schema.
 - PROJECT.md §5: MQ persistence depth, streaming cadence, OpenAPI tool (swag vs oapi-codegen).
 
 ## Commits
-- (none yet — git initialized, ready for first commit once skeleton compiles)
+- `main`: bootstrap scaffold + CI/TDD infra (PR #1 merged). Cleanup PR in flight.

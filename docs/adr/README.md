@@ -1,19 +1,18 @@
 # Architecture Decision Records (ADRs)
 
-An ADR captures a **load-bearing architectural decision** — one a future maintainer (or the
-interview panel) would want the *reasoning* behind, and one with a genuine road-not-taken.
+An ADR captures a decision about **how the running system is designed** — its structure, guarantees,
+and the trade-offs behind them. Each is a choice a future maintainer would want the reasoning for,
+with a genuine road-not-taken.
 
-**What earns an ADR:** a choice that is hard to reverse, shapes the system's structure or guarantees,
-and has real trade-offs (e.g. how the queue achieves durability, the storage engine, module
-topology, the wire protocol, the data-model identity key).
+**In scope (architecture):** how the message queue achieves durability, the storage engine, the
+module topology, the wire protocol, the data-model identity key.
 
-**What does NOT:** reversible tooling and branding picks with no meaningful trade-off — the local
-k8s runtime (kind), the codegen tool (buf), the project name. Those are recorded in
-[`../PROMPT_HISTORY.md`](../PROMPT_HISTORY.md), which logs **every** prompt verbatim. ADRs are the
-curated, decision-level view; PROMPT_HISTORY is the complete raw trail.
+**Out of scope (engineering process):** branching strategy, CI pipeline, testing/coverage approach,
+and pre-commit tooling are *not* ADRs. They live in operational docs — see
+[`../BRANCHING.md`](../BRANCHING.md), the root `Makefile`, and `.github/workflows/`.
 
-Each ADR includes a **Driving Prompt** — the verbatim user instruction behind it — so the human → AI
-decision trail stays auditable.
+Each ADR records the **Driving Prompt** — the verbatim user instruction behind it — so the human → AI
+decision trail stays auditable. The full, raw prompt log is [`../PROMPT_HISTORY.md`](../PROMPT_HISTORY.md).
 
 ## Format
 ```
@@ -35,5 +34,3 @@ decision trail stays auditable.
 | [0003](0003-multi-module-monorepo.md) | Multi-module monorepo (5× go.mod + go.work) | Accepted |
 | [0004](0004-grpc-streaming-transport.md) | gRPC streaming as the MQ transport | Accepted |
 | [0005](0005-gpu-uuid-as-canonical-id.md) | GPU UUID as the canonical identity | Proposed |
-| [0006](0006-branching-and-ci-model.md) | Long-lived per-module branches with CI-gated trunk | Accepted |
-| [0007](0007-tdd-and-quality-gates.md) | TDD with enforced coverage + lint/format gates | Accepted |
