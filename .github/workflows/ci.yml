@@ -40,13 +40,44 @@ jobs:
         run: go build ./...
       - name: test (race + coverage)
         working-directory: ${{ matrix.module }}
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        # Exclude generated (/gen/) and main wiring (/cmd/) from coverage.
+        # `go test` exits non-zero on an empty package set, so skip cleanly
+        # until a module has testable code (TDD adds packages over time).
+        run: |
+          pkgs="$(go list ./... 2>/dev/null | grep -vE '/(gen|cmd)/' || true)"
+          if [ -n "$pkgs" ]; then
+            go test -race -coverprofile=coverage.out -covermode=atomic $pkgs
+          else
+            echo "no testable packages yet — skip"
+          fi
+      - name: coverage gate (line >= 90%)
+        working-directory: ${{ matrix.module }}
+        run: COVERAGE_THRESHOLD=90 bash ../scripts/coverage-gate.sh coverage.out
       - name: upload coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.module }}
           path: ${{ matrix.module }}/coverage.out
           if-no-files-found: ignore
+
+  # gofmt + golangci-lint across modules — the same checks as the local
+  # pre-commit hook, enforced here because hooks can be bypassed (--no-verify).
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: gofmt
+        run: |
+          bad=$(gofmt -l $(git ls-files '*.go' | grep -v '/gen/') 2>/dev/null || true)
+          if [ -n "$bad" ]; then echo "Unformatted files:"; echo "$bad"; exit 1; fi
+      - name: install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      - name: golangci-lint
+        run: bash scripts/lint.sh
 
   # Lint the Helm umbrella chart once it exists; skips gracefully until then.
   helm-lint:
@@ -64,18 +95,35 @@ jobs:
             echo "No chart yet at $chart — skipping."
           fi
 
+  # 100% branch/logic coverage on internal/ packages (gobco). Skips until the
+  # first logic package lands under TDD, then enforces every branch is exercised.
+  logic-coverage:
+    name: logic-coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: install gobco
+        run: go install github.com/rillig/gobco@latest
+      - name: branch coverage gate (logic = 100%)
+        run: bash scripts/logic-coverage.sh
+
   # Single required status check. Branch protection on main requires THIS job;
-  # it stays green only if every matrix build + helm-lint succeeded.
+  # it stays green only if every matrix build + helm-lint + coverage gate passed.
   ci-success:
     name: ci-success
     runs-on: ubuntu-latest
-    needs: [build-test, helm-lint]
+    needs: [build-test, lint, helm-lint, logic-coverage]
     if: always()
     steps:
       - name: verify all checks passed
         run: |
           if [ "${{ needs.build-test.result }}" != "success" ] || \
-             [ "${{ needs.helm-lint.result }}" != "success" ]; then
+             [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.helm-lint.result }}" != "success" ] || \
+             [ "${{ needs.logic-coverage.result }}" != "success" ]; then
             echo "One or more CI jobs failed."
             exit 1
           fi

@@ -12,14 +12,24 @@
 - [x] Define MQ proto contract + generate gRPC stubs (`mq/gen/mqv1`)
 - [x] Set up docs/: ADR 0001–0008 + PROMPT_HISTORY
 - [x] Name project = vantage / org ajitgunturi; rename module paths; `mq` builds
+- [x] GitHub repo created (public) + 5 long-lived feat/* branches + protection rulesets (ADR-0006)
+- [x] CI workflow live; first main push went red → fixing via PR on feat/k8s-infra
+- [x] Makefile (tools, hooks, proto, build, test, cover, cover-check, cover-logic, lint, kind, helm)
+- [x] Coverage gates: 90% line (native) + 100% branch (gobco), fail-open until code (ADR-0007)
+- [x] Pre-commit hook (gofmt + golangci-lint) + CI lint job (ADR-0007)
+- [ ] **IN FLIGHT:** PR feat/k8s-infra → main (fix CI red + TDD/quality infra); merge once ci-success green
 - [ ] Stub service mains (streamer / collector / apigateway / mqbroker) — compiling skeletons
-- [ ] Makefile (tools, proto, build, test+coverage, openapi, kind, helm)
 - [ ] k8s-infra Helm umbrella chart + kind config
 - [ ] Dockerfiles per service
 - [ ] README skeleton
-- [ ] Implement MQ durable segment log (ADR-0001) + client lib
-- [ ] Implement collector→Postgres, streamer→CSV loop, API gateway endpoints
-- [ ] Unit tests + perf harness (producer/consumer ratios)
+- [ ] Implement MQ durable segment log (ADR-0001) + client lib — TDD
+- [ ] Implement collector→Postgres, streamer→CSV loop, API gateway endpoints — TDD
+- [ ] Perf harness (producer/consumer ratios)
+
+## Workflow reminder
+- main is protected: all changes via PR from feat/* branches; `ci-success` must be green to merge.
+- Build/CI/test infra rides on `feat/k8s-infra`. Module logic rides on its own feat/<module> branch.
+- Run `make hooks` once per clone to install the pre-commit hook.
 
 ## Decisions made (see docs/adr)
 - Multi-module monorepo + go.work (ADR-0003); gRPC transport (ADR-0004); kind (ADR-0005); buf (ADR-0006).
