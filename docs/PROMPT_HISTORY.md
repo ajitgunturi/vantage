@@ -102,6 +102,30 @@ protected, auto-delete disabled). → drives **ADR-0006**.
 
 ---
 
+## P8 — TDD + coverage targets
+🟦 **User:**
+> another dimension - we must have 90% lines of code coverage and 100% logic coverage - let us
+> implement test driven development approach for the components we are going to build here.
+
+🟩 **AI:** First push to main had gone **red** (placeholder modules declared deps with no go.sum/code).
+Confirmed logic-coverage tooling = gobco. Reverted the 3 modules to bare go.mod (deps return via TDD),
+added `scripts/coverage-gate.sh` (≥90% line, fail-open until code) + `scripts/logic-coverage.sh`
+(gobco 100% branch), Makefile coverage targets, and CI gates (excluding `/gen/` + `/cmd/`).
+→ drives **ADR-0007**.
+⚠️ Gotchas fixed: `go test ./...` exits 1 on an empty package set (added skip guard); generated code
+is instrumented at 0% (scoped coverage to exclude `/gen/` + `/cmd/`).
+
+## P9 — Pre-commit hook
+🟦 **User:**
+> we need a pre commit hook - ill formatted code - lint related issues should be caught before we
+> push any code to remote.
+
+🟩 **AI:** Added `.githooks/pre-commit` (gofmt + golangci-lint on staged Go), installed via
+`make hooks` (core.hooksPath), plus a CI `lint` job running the same checks (hooks are bypassable).
+Verified the hook blocks unformatted code. Folded into **ADR-0007** (one quality-gates decision).
+
+---
+
 <!--
 APPEND TEMPLATE (newest at bottom):
 

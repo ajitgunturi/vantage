@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# vantage pre-commit hook: catch ill-formatted code and lint issues BEFORE they
+# reach a commit (and therefore before push). Installed via `make hooks`
+# (sets core.hooksPath=.githooks). Bypass in emergencies with `git commit --no-verify`.
+#
+# Fast by design: only checks staged Go files and the modules they touch.
+set -euo pipefail
+export PATH="$(go env GOPATH)/bin:$PATH"
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+[ -z "$staged" ] && exit 0
+
+echo "▶ pre-commit: gofmt + lint"
+
+# 1) Formatting — gofmt must be clean.
+bad=$(echo "$staged" | xargs gofmt -l 2>/dev/null || true)
+if [ -n "$bad" ]; then
+  echo "✗ gofmt: these files are not formatted (fix: gofmt -w <file>):"
+  echo "$bad" | sed 's/^/   /'
+  exit 1
+fi
+
+# 2) Lint — golangci-lint per touched module (falls back to go vet if absent).
+mods=$(echo "$staged" | awk -F/ '{print $1}' | sort -u)
+have_lint=0; command -v golangci-lint >/dev/null 2>&1 && have_lint=1
+for m in $mods; do
+  [ -f "$m/go.mod" ] || continue
+  pkgs="$(cd "$m" && GOWORK=off go list ./... 2>/dev/null || true)"
+  [ -n "$pkgs" ] || continue
+  echo "== lint $m =="
+  if [ "$have_lint" = 1 ]; then
+    (cd "$m" && GOWORK=off golangci-lint run ./...) || exit 1
+  else
+    echo "⚠ golangci-lint not installed (run 'make tools') — falling back to go vet"
+    (cd "$m" && GOWORK=off go vet ./...) || exit 1
+  fi
+done
+
+echo "✓ pre-commit passed"

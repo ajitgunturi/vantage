@@ -36,3 +36,4 @@ decision trail stays auditable.
 | [0004](0004-grpc-streaming-transport.md) | gRPC streaming as the MQ transport | Accepted |
 | [0005](0005-gpu-uuid-as-canonical-id.md) | GPU UUID as the canonical identity | Proposed |
 | [0006](0006-branching-and-ci-model.md) | Long-lived per-module branches with CI-gated trunk | Accepted |
+| [0007](0007-tdd-and-quality-gates.md) | TDD with enforced coverage + lint/format gates | Accepted |
