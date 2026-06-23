@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package mq.v1;
+
+option go_package = "github.com/ajitgunturi/vantage/mq/gen/mqv1;mqv1";
+
+// A single message on the queue. `key` selects the partition (we hash it), so
+// all messages for the same GPU UUID land on one partition and stay ordered.
+message Message {
+  bytes key = 1;
+  bytes value = 2;
+  int64 timestamp_unix_ns = 3;
+}
+
+// ---- Produce (client -> broker, streaming for throughput) ----
+message ProduceRequest {
+  string topic = 1;
+  Message message = 2;
+}
+message ProduceResponse {
+  int32 partition = 1;
+  int64 offset = 2; // monotonic per-partition offset assigned by the broker
+}
+
+// ---- Consume (broker -> client, server-streaming push) ----
+message ConsumeRequest {
+  string topic = 1;
+  string group = 2;       // consumer group: members share partitions, offsets tracked per group
+  string consumer_id = 3; // unique within the group, used for rebalancing/liveness
+}
+message ConsumeResponse {
+  int32 partition = 1;
+  int64 offset = 2;
+  Message message = 3;
+}
+
+// ---- Commit (at-least-once: client acks AFTER it has persisted) ----
+message CommitRequest {
+  string topic = 1;
+  string group = 2;
+  int32 partition = 3;
+  int64 offset = 4; // commit means "I have durably handled up to and including this offset"
+}
+message CommitResponse { bool ok = 1; }
+
+// ---- Admin ----
+message TopicSpec {
+  string topic = 1;
+  int32 partitions = 2; // >= max collectors so every consumer can own >=1 partition
+}
+message CreateTopicResponse { bool ok = 1; }
+
+message HealthRequest {}
+message HealthResponse { bool serving = 1; }
+
+// Broker is the custom message-queue service. Durability (append-only segment
+// log + offset index on a PVC) lives behind this interface so it survives restarts.
+service Broker {
+  rpc Produce(stream ProduceRequest) returns (stream ProduceResponse);
+  rpc Consume(ConsumeRequest) returns (stream ConsumeResponse);
+  rpc Commit(CommitRequest) returns (CommitResponse);
+  rpc CreateTopic(TopicSpec) returns (CreateTopicResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}

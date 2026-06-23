@@ -1,0 +1,12 @@
+// go.work ties the multi-module monorepo together for LOCAL development so the
+// IDE and `go build ./...` resolve cross-module imports (e.g. streamer -> mq)
+// without network fetches. Docker builds do NOT use this file; each service's
+// go.mod carries a `replace` directive so it builds standalone in its container.
+go 1.26
+
+use (
+	./mq
+	./streamer
+	./collector
+	./apigateway
+)

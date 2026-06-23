@@ -1,0 +1,82 @@
+name: CI
+
+# Runs ONLY on pull requests targeting main and on merges/pushes to main.
+# Feature branches (feat/*) intentionally have no CI on direct push — by omitting
+# them here, pushes to those branches never trigger a workflow run.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build + unit-test each Go module independently, the same way its Docker image
+  # builds: GOWORK=off forces the per-module `replace` directives instead of the
+  # local go.work, so CI proves each module compiles standalone.
+  build-test:
+    name: build-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [mq, streamer, collector, apigateway]
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+      - name: test (race + coverage)
+        working-directory: ${{ matrix.module }}
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      - name: upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.module }}
+          path: ${{ matrix.module }}/coverage.out
+          if-no-files-found: ignore
+
+  # Lint the Helm umbrella chart once it exists; skips gracefully until then.
+  helm-lint:
+    name: helm-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: |
+          chart=k8s-infra/helm/telemetry
+          if [ -f "$chart/Chart.yaml" ]; then
+            helm lint "$chart"
+          else
+            echo "No chart yet at $chart — skipping."
+          fi
+
+  # Single required status check. Branch protection on main requires THIS job;
+  # it stays green only if every matrix build + helm-lint succeeded.
+  ci-success:
+    name: ci-success
+    runs-on: ubuntu-latest
+    needs: [build-test, helm-lint]
+    if: always()
+    steps:
+      - name: verify all checks passed
+        run: |
+          if [ "${{ needs.build-test.result }}" != "success" ] || \
+             [ "${{ needs.helm-lint.result }}" != "success" ]; then
+            echo "One or more CI jobs failed."
+            exit 1
+          fi
+          echo "All CI jobs passed."

@@ -1,0 +1,33 @@
+# Binaries
+bin/
+*.exe
+*.out
+
+# Go workspace sum (keep go.work, drop the sum)
+go.work.sum
+
+# Local broker data / WAL segments
+data/
+*.wal
+*.seg
+*.segidx
+
+# Test / coverage artifacts
+coverage.out
+coverage.html
+*.test
+
+# OpenAPI generated bundles are committed; swag's temp files are not
+**/docs/swagger.yaml.tmp
+
+# Tooling installed locally
+.tools/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Input artifacts (kept locally, not in repo history)
+*.pdf
+dcgm_metrics_*.csv
