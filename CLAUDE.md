@@ -13,6 +13,10 @@ requirements in `.planning/REQUIREMENTS.md`. (Architecture decisions remain in `
 - `apigateway/` — REST API + auto-generated OpenAPI.
 - `k8s-infra/` — Helm umbrella chart + `kind/` config.
 - `docs/adr/` — architecture decisions only (ADR bar: load-bearing forks, not tooling/naming).
+- `.planning/` — GSD-managed build record **and AI-usage evidence trail**: research, per-phase
+  SPEC/PLAN/VERIFICATION, requirements, roadmap, STATE, and the commit history. This is the source
+  of truth for "how AI assistance was used." `docs/PROMPT_HISTORY.md` is the **frozen pre-GSD
+  bootstrap appendix** (the scaffold-era prompt log) — not maintained going forward.
 
 Multi-module via `go.work`. Run `go` commands from the module dir, or use Makefile targets.
 
@@ -30,5 +34,8 @@ Multi-module via `go.work`. Run `go` commands from the module dir, or use Makefi
   **green**. A phase is done when its suite passes and coverage gates hold (90% line / 100% branch,
   `make cover-check`). No green-by-deletion — weakening a test requires a spec change. See `.planning/PROJECT.md` § Delivery Method.
 - Collector writes must be idempotent: upsert on `(uuid, metric_name, ts)`.
-- Canonical GPU identity = `uuid` (ADR-0005, still *Proposed* — confirm before freezing DB schema).
+- Canonical GPU identity = `uuid` (ADR-0005, **Accepted** 2026-06-24 — PK `(uuid, metric_name, ts)`, partition key, API `{id}`).
 - Conventional Commits; no `Co-Authored-By` trailer. Ephemeral `feat/*|fix/*|chore/*` branch → PR to `main` → merge green.
+- **Build evidence is GSD-driven**: capture decisions, prompts, and manual interventions as `.planning/`
+  artifacts (SPEC/PLAN/VERIFICATION, ADRs, commits) *as you go* — the DOC-02 AI-usage doc is synthesized
+  from `.planning/` (+ the frozen `docs/PROMPT_HISTORY.md` appendix), not reconstructed at the end.

@@ -150,7 +150,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Success Criteria** (what must be TRUE):
   1. An end-to-end integration test spins broker + streamer + collector + Postgres, produces N messages, restarts the broker mid-stream, and asserts zero loss and correct per-GPU ordering.
   2. The README documents architecture & design, build/packaging, install workflow, a sample user workflow, and the Phase 8 performance comparison table.
-  3. The AI-usage doc records the exact prompts used to bootstrap repo/code/tests/build, where they fell short, and the manual interventions required.
+  3. The AI-usage doc is synthesized from the `.planning/` evidence trail (GSD research, per-phase SPEC/PLAN/VERIFICATION, commit history) plus the frozen pre-GSD `docs/PROMPT_HISTORY.md` appendix — covering the prompts/decisions that built the system, where AI fell short, and the manual interventions required.
 **Plans**: TBD
 
 ## Progress

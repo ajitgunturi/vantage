@@ -12,7 +12,9 @@ and pre-commit tooling are *not* ADRs. They live in operational docs — see
 [`../BRANCHING.md`](../BRANCHING.md), the root `Makefile`, and `.github/workflows/`.
 
 Each ADR records the **Driving Prompt** — the verbatim user instruction behind it — so the human → AI
-decision trail stays auditable. The full, raw prompt log is [`../PROMPT_HISTORY.md`](../PROMPT_HISTORY.md).
+decision trail stays auditable. The scaffold-era prompt log is the frozen pre-GSD appendix
+[`../PROMPT_HISTORY.md`](../PROMPT_HISTORY.md); from GSD adoption onward the build/AI-usage evidence
+is the `.planning/` tree (research, per-phase SPEC/PLAN/VERIFICATION, requirements, roadmap, commits).
 
 ## Format
 ```

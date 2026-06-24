@@ -60,7 +60,7 @@
 - [ ] **TEST-01**: Unit tests cover business logic with coverage reported via Makefile (gate: 90% line, 100% branch on logic)
 - [ ] **TEST-02**: An end-to-end integration test proves no-loss + correct per-GPU ordering across a broker restart
 - [ ] **DOC-01**: README documents architecture & design, build/packaging, install workflow, and a sample user workflow
-- [ ] **DOC-02**: AI-usage doc records the exact prompts used to bootstrap repo/code/tests/build, and where prompts fell short and needed manual intervention
+- [ ] **DOC-02**: AI-usage doc **synthesized from the `.planning/` evidence trail** (GSD research, per-phase SPEC/PLAN/VERIFICATION, commit history) plus the frozen pre-GSD `docs/PROMPT_HISTORY.md` appendix — records the prompts/decisions that built the system, where AI fell short, and the manual interventions required
 
 ## v2 Requirements
 

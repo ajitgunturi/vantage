@@ -1,10 +1,17 @@
-# Prompt History
+# Prompt History — Pre-GSD Bootstrap Appendix (FROZEN)
 
-A verbatim, chronological log of the user instructions that shaped **vantage**, each with a one-line
-note on what was done. It exists for AI-usage transparency: it shows which parts of the work were
-human-directed versus AI-executed.
+> **Status: frozen / superseded.** This is the verbatim prompt log from the **pre-GSD scaffold era**
+> (assignment intake → monorepo decision → naming/CI/branching). It is kept as an appendix to the
+> AI-usage deliverable. **It is no longer maintained.** From GSD adoption (2026-06-24) onward, the
+> build record and AI-usage evidence is the **`.planning/` tree** — research, per-phase
+> SPEC/PLAN/VERIFICATION, requirements, roadmap, STATE, and the commit history. See the root
+> `CLAUDE.md` and `.planning/PROJECT.md` § Delivery Method.
 
-Architecture decisions are distilled in [`adr/`](adr/); this file is the raw prompt trail.
+A verbatim, chronological log of the user instructions that shaped **vantage** during bootstrap, each
+with a one-line note on what was done. It shows which parts of the early work were human-directed
+versus AI-executed.
+
+Architecture decisions are distilled in [`adr/`](adr/); this file is the raw pre-GSD prompt trail.
 
 ---
 
