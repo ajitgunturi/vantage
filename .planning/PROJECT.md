@@ -67,7 +67,7 @@ across producer/consumer ratios up to 10×10. If the MQ loses or corrupts messag
 - **Dataset:** NVIDIA DCGM exporter scrape (`dcgm_metrics_20250718_134233.csv`), 2,470 rows. Columns: `timestamp, metric_name, gpu_id, device, uuid, modelName, Hostname, container, pod, namespace, value, labels_raw`.
 - **Cardinality (measured):** 10 metric names (each ×247), 31 hosts (`mtv5-dgx1-hgpu-001..032`), 8 GPUs/host, 247 distinct UUIDs ≈ physical GPUs. `container`/`pod`/`namespace` are empty here (carry as nullable). 4 source timestamps (irrelevant — we re-stamp).
 - **Data model:** a datapoint = `(uuid, metric_name, value, ts)` + GPU dimensions (host, gpu_id, device, modelName). Canonical GPU identity = `uuid` (globally unique); `gpu_id` 0–7 is only unique within a host.
-- **Current state:** scaffold + tooling complete; **no service logic implemented yet** (stubs + generated gRPC only). Next concrete step per STATE.md: stub the service mains into compiling skeletons.
+- **Current state:** scaffold + tooling complete; **no service logic implemented yet** (stubs + generated gRPC only). Next concrete step: stub the service mains into compiling skeletons, then build the broker durable segment log first (see `.planning/ROADMAP.md`).
 - **Stack locked by assignment:** Go, PostgreSQL, Docker, Kubernetes, Helm. Locked libs: `pgx`, `slog`, `testify`, Prometheus client. Local k8s: kind.
 
 ## Constraints

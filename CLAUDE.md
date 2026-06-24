@@ -1,7 +1,9 @@
 # vantage — project conventions
 
 Elastic GPU telemetry pipeline + custom message queue. Go multi-module monorepo.
-Module path root: `github.com/ajitgunturi/vantage`. Full spec in `PROJECT.md`; live status in `STATE.md`.
+Module path root: `github.com/ajitgunturi/vantage`. Project context is GSD-managed under `.planning/`:
+spec in `.planning/PROJECT.md`, live status in `.planning/STATE.md`, roadmap in `.planning/ROADMAP.md`,
+requirements in `.planning/REQUIREMENTS.md`. (Architecture decisions remain in `docs/adr/`.)
 
 ## Module map
 - `mq/` — custom message queue: `broker/` (durable segment log), `client/` (producer/consumer lib),

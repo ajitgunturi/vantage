@@ -34,3 +34,6 @@ dcgm_metrics_*.csv
 
 # Personal/machine-local Claude Code config (shared config goes in settings.json)
 .claude/settings.local.json
+
+# GSD research tool cache (local only)
+.planning/research/.cache/
