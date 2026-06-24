@@ -1,7 +1,8 @@
 # Branching & CI Model
 
-> Solo-developer model (see [ADR-0008](adr/0008-simplified-solo-branching.md), which supersedes the
-> earlier 5-branch model in ADR-0006). Protect `main`; everything else is ephemeral.
+> Solo-developer model — supersedes the earlier 5-branch experiment (see PROMPT_HISTORY #9).
+> Branching/CI is process, not architecture, so it lives here rather than in an ADR.
+> Protect `main`; everything else is ephemeral.
 
 ## Branches
 | Branch | Purpose | Protected | CI |
