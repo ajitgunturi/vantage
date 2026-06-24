@@ -31,3 +31,6 @@ coverage.html
 # Input artifacts (kept locally, not in repo history)
 *.pdf
 dcgm_metrics_*.csv
+
+# Personal/machine-local Claude Code config (shared config goes in settings.json)
+.claude/settings.local.json

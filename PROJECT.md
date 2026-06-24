@@ -121,27 +121,34 @@ table + brief analysis for the README. Metrics exposed (Prometheus-style) from e
 
 ---
 
-## 5. Open Design Questions (to confirm before building)
-1. **`{id}` semantics**: UUID (recommended, globally unique) vs `gpu_id` vs `host:gpu_id` composite?
-2. **MQ transport/protocol**: gRPC streaming vs custom length-prefixed TCP framing vs HTTP/2.
-3. **MQ persistence depth**: full Kafka-lite segment log, or simpler bounded WAL + replay? (effort
-   vs. fidelity to "survives downtime").
-4. **Streaming cadence**: per-row interval / batch size / loop behavior for "periodic" streaming.
-5. **Repo layout**: Go monorepo (`/cmd/*`, `/internal/*`, `/pkg/mq`, `/deploy/helm`, `/api`).
-6. **OpenAPI generator**: `swaggo/swag` (annotations) vs `oapi-codegen` (spec-first).
-7. **Local dev target**: kind / minikube / k3d for the Helm install + perf runs.
+## 5. Design Questions — decision ledger
+
+Resolved questions cite their ADR or tooling note and are not re-litigated. The **live open set is
+tracked in `STATE.md`** (single source of truth for what's still open); this table is the full record.
+
+| # | Question | Resolution |
+|---|---|---|
+| 1 | `{id}` semantics: UUID vs `gpu_id` vs `host:gpu_id` | **OPEN** — leaning UUID; ADR-0005 *Proposed*, confirm before freezing schema. |
+| 2 | MQ transport: gRPC vs length-prefixed TCP vs HTTP/2 | **Resolved** → ADR-0004 (gRPC streaming). |
+| 3 | MQ persistence depth: full segment log vs bounded WAL | **OPEN** — direction set by ADR-0001 (append-only segment log); fidelity/effort TBD at MQ build. |
+| 4 | Streaming cadence: per-row interval / batch / loop | **OPEN** — impl detail; decide at streamer build. |
+| 5 | Repo layout | **Resolved** → ADR-0003 (multi-module monorepo + `go.work`). |
+| 6 | OpenAPI generator: `swaggo/swag` vs `oapi-codegen` | **OPEN** — decide at API-gateway build. |
+| 7 | Local dev target: kind / minikube / k3d | **Resolved** → **kind** (tooling; see PROMPT_HISTORY, no ADR). |
+
+Live open set (4): **#1** GPU id · **#3** persistence depth · **#4** cadence · **#6** OpenAPI tool — see `STATE.md`.
 
 ---
 
-## 6. Tech Stack (locked by assignment) + proposed libs
-- Go; PostgreSQL; Docker; Kubernetes; Helm.
-- Proposed: `pgx` (Postgres), `chi`/`gin` (HTTP), `swag` or `oapi-codegen` (OpenAPI),
-  `slog` (logging), `testify` (tests), Prometheus client (metrics). **Pending confirmation.**
+## 6. Tech Stack
+- **Locked by assignment:** Go; PostgreSQL; Docker; Kubernetes; Helm.
+- **Locked libs:** `pgx` (Postgres), `slog` (logging), `testify` (tests), Prometheus client (metrics).
+- **Still open:** HTTP router (`chi` vs `gin`); OpenAPI generator (`swag` vs `oapi-codegen` — §5 #6).
 
 ---
 
 ## 7. Status
 **Phase: MONOREPO SCAFFOLD.** Project named **vantage** (`github.com/ajitgunturi/vantage`).
-Tree + `go.work` + 5 modules + MQ proto/gRPC stubs + `docs/` (ADR 0001–0008 + PROMPT_HISTORY) in
+Tree + `go.work` + 5 modules + MQ proto/gRPC stubs + `docs/` (ADR 0001–0005 + PROMPT_HISTORY) in
 place; `mq` module compiles. Pending: service stubs, Makefile, Helm, Dockerfiles, README, then logic.
 See `STATE.md` for the live checklist and `docs/adr/` for decisions.
