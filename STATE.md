@@ -2,7 +2,7 @@
 
 **Project:** vantage (`github.com/ajitgunturi/vantage`) — elastic GPU telemetry pipeline.
 **Current phase:** Monorepo scaffold (skeleton in place; service logic pending).
-**Last action:** Renamed module paths to vantage, regenerated gRPC stubs, verified `mq` builds.
+**Last action:** Reconciled context-file drift (PROJECT/STATE/ADR) + added project `CLAUDE.md`; trimmed Claude config (PR #3 merged).
 
 ## Micro-task
 - [x] Read `GPU Telemetry Pipeline Message Queue.pdf` + profile dataset
@@ -17,8 +17,9 @@
 - [x] Makefile (tools, hooks, proto, build, test, cover, cover-check, cover-logic, lint, kind, helm)
 - [x] Coverage gates: 90% line (native) + 100% branch (gobco), fail-open until code (Makefile + CI)
 - [x] Pre-commit hook (gofmt + golangci-lint) + CI lint job (.githooks + CI)
-- [ ] **IN FLIGHT:** PR feat/k8s-infra → main (fix CI red + TDD/quality infra); merge once ci-success green
-- [ ] Stub service mains (streamer / collector / apigateway / mqbroker) — compiling skeletons
+- [x] CI red fixed + TDD/quality infra merged to main (PR #1)
+- [x] Context-file consistency pass + lean project `CLAUDE.md` + config trim (PR #3)
+- [ ] **NEXT:** Stub service mains (streamer / collector / apigateway / mqbroker) — compiling skeletons
 - [ ] k8s-infra Helm umbrella chart + kind config
 - [ ] Dockerfiles per service
 - [ ] README skeleton
@@ -48,4 +49,4 @@
 4. **OpenAPI generator** — `swag` vs `oapi-codegen`; decide at API-gateway build.
 
 ## Commits
-- `main`: bootstrap scaffold + CI/TDD infra (PR #1 merged). Cleanup PR in flight.
+- `main`: bootstrap scaffold + CI/TDD infra (PR #1) → context/config cleanup (PR #3). Both merged.
