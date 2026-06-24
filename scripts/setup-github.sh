@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotent GitHub bootstrap for the vantage repo (solo-dev model — see docs/adr/0008).
+# Idempotent GitHub bootstrap for the vantage repo (solo-dev model — see docs/BRANCHING.md).
 #
 # Creates the repo, pushes main, and applies a single Ruleset:
 #   - main : protected — PR required, `ci-success` status check required, no force-push, no deletion

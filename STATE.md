@@ -10,13 +10,13 @@
 - [x] Decide structure: multi-module (5× go.mod) + go.work, gRPC, kind, buf
 - [x] Create dir tree, go.work, .gitignore, per-module go.mod
 - [x] Define MQ proto contract + generate gRPC stubs (`mq/gen/mqv1`)
-- [x] Set up docs/: ADR 0001–0008 + PROMPT_HISTORY
+- [x] Set up docs/: ADR 0001–0005 + PROMPT_HISTORY
 - [x] Name project = vantage / org ajitgunturi; rename module paths; `mq` builds
-- [x] GitHub repo created (public) + 5 long-lived feat/* branches + protection rulesets (ADR-0006)
-- [x] CI workflow live; first main push went red → fixing via PR on feat/k8s-infra
+- [x] GitHub repo created (public) + `main` protected (branching now simplified — BRANCHING.md)
+- [x] CI workflow live; first main push went red → fixed via PR on an ephemeral branch
 - [x] Makefile (tools, hooks, proto, build, test, cover, cover-check, cover-logic, lint, kind, helm)
-- [x] Coverage gates: 90% line (native) + 100% branch (gobco), fail-open until code (ADR-0007)
-- [x] Pre-commit hook (gofmt + golangci-lint) + CI lint job (ADR-0007)
+- [x] Coverage gates: 90% line (native) + 100% branch (gobco), fail-open until code (Makefile + CI)
+- [x] Pre-commit hook (gofmt + golangci-lint) + CI lint job (.githooks + CI)
 - [ ] **IN FLIGHT:** PR feat/k8s-infra → main (fix CI red + TDD/quality infra); merge once ci-success green
 - [ ] Stub service mains (streamer / collector / apigateway / mqbroker) — compiling skeletons
 - [ ] k8s-infra Helm umbrella chart + kind config
@@ -26,7 +26,7 @@
 - [ ] Implement collector→Postgres, streamer→CSV loop, API gateway endpoints — TDD
 - [ ] Perf harness (producer/consumer ratios)
 
-## Workflow reminder (simplified — ADR-0008)
+## Workflow reminder (simplified — BRANCHING.md)
 - Only `main` is protected (PR + `ci-success` to merge). No long-lived feature branches.
 - Work on ephemeral branches (feat/*, fix/*, chore/*) → PR to main → merge when green → delete.
 - CI behaviour unchanged: PR→main and merge→main both build/test/lint/cover.
@@ -41,9 +41,11 @@
 - Process (branching, CI, TDD/coverage, hooks) lives in BRANCHING.md / Makefile / CI, not ADRs.
 - Tooling (kind, buf) + name (vantage) recorded in PROMPT_HISTORY, not ADRs.
 
-## Open questions
-- ADR-0005 (GPU id = UUID) still **Proposed** — confirm before freezing DB schema.
-- PROJECT.md §5: MQ persistence depth, streaming cadence, OpenAPI tool (swag vs oapi-codegen).
+## Open questions (canonical live set — PROJECT.md §5 is the full ledger)
+1. **GPU `{id}` = UUID** — ADR-0005 *Proposed*; confirm before freezing DB schema.
+2. **MQ persistence depth** — segment-log direction set (ADR-0001); fidelity/effort TBD at MQ build.
+3. **Streaming cadence** — per-row interval / batch / loop; decide at streamer build.
+4. **OpenAPI generator** — `swag` vs `oapi-codegen`; decide at API-gateway build.
 
 ## Commits
 - `main`: bootstrap scaffold + CI/TDD infra (PR #1 merged). Cleanup PR in flight.

@@ -23,7 +23,7 @@ Confirmed via question prompt: **MQ transport = "gRPC streaming"**.
 ## Consequences
 - (+) HTTP/2 multiplexing, backpressure, and typed client lib for free; idiomatic Go.
 - (+) Streaming maps naturally onto produce/consume; cheap to add fields via protobuf.
-- (−) Adds protobuf codegen to the build (handled hermetically — see ADR-0006).
+- (−) Adds protobuf codegen to the build (handled hermetically via `buf` — tooling, see PROMPT_HISTORY).
 - (−) Must be explicit that gRPC ≠ a broker; queue durability/ordering/offsets are ours (ADR-0001).
 
 ## Alternatives considered
