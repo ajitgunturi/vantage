@@ -1,44 +1,37 @@
 # Branching & CI Model
 
-## Branches
-| Branch | Purpose | Protected | CI on push? |
-|--------|---------|-----------|-------------|
-| `main` | Integration trunk. Always green, always deployable. | ✅ PR + `ci-success` required, no force-push, no deletion | ✅ on merge |
-| `feat/mq` | Custom message queue module | ✅ no force-push, no deletion | ❌ |
-| `feat/streamer` | Telemetry streamer module | ✅ no force-push, no deletion | ❌ |
-| `feat/collector` | Telemetry collector module | ✅ no force-push, no deletion | ❌ |
-| `feat/apigateway` | REST API gateway module | ✅ no force-push, no deletion | ❌ |
-| `feat/k8s-infra` | Helm charts + kind infra | ✅ no force-push, no deletion | ❌ |
+> Solo-developer model (see [ADR-0008](adr/0008-simplified-solo-branching.md), which supersedes the
+> earlier 5-branch model in ADR-0006). Protect `main`; everything else is ephemeral.
 
-The five feature branches are **long-lived** (one per module) and are **never deleted** after a
-merge — auto-delete-on-merge is disabled at the repo level.
+## Branches
+| Branch | Purpose | Protected | CI |
+|--------|---------|-----------|----|
+| `main` | Integration trunk. Always green, always deployable. | ✅ PR + `ci-success` required, no force-push, no deletion | ✅ on PR + on merge |
+| `feat/*`, `fix/*`, `chore/*` | Ephemeral working branches — one per change | ❌ unprotected | ✅ when a PR to `main` is open |
+
+There are **no long-lived branches** other than `main`. Create a branch for a change, PR it, merge
+when green, delete it.
 
 ## Workflow
 ```
-commit ──► feat/<module>        (direct commits; no CI runs here)
-   │
-   └── open PR: feat/<module> ──► main
+git checkout -b feat/<thing> main
+   │  ... commit work (pre-commit hook runs gofmt + lint) ...
+   └── open PR -> main
             │
-            ├── CI runs: build-test (×4 modules) + helm-lint  →  ci-success gate
+            ├── CI: build-test (×4 modules) + lint + helm-lint + logic-coverage  →  ci-success gate
             │
-            └── merge (allowed once ci-success is green)  ──►  CI runs again on main
+            └── merge (allowed once ci-success is green)  ──►  CI re-runs on main
+                     └── delete the branch
 ```
 
-- **Direct commits** land on a feature branch — fast, no CI noise.
-- **Opening a PR to `main`** triggers the full build + unit tests (`.github/workflows/ci.yml`).
-- **Merging to `main`** is blocked until the `ci-success` status check passes, then CI re-runs on
-  `main` to confirm the integrated trunk is green.
-- Feature branches keep accumulating work across many PRs; they are not throwaway.
-
-## Why CI only on PRs and merges to main
-Feature-branch pushes are intentionally excluded from CI to avoid burning Actions minutes on
-in-progress work. The contract is enforced at the **integration boundary**: nothing reaches `main`
-without a green `build-test` matrix. The single `ci-success` gate job aggregates the matrix so branch
-protection has one stable required check, even as modules are added.
+- **`main` is protected**: no direct pushes; every change lands via a PR whose `ci-success` check is
+  green.
+- **CI triggers on `pull_request → main` and `push → main`** (`.github/workflows/ci.yml`) — source
+  branch doesn't matter, so any ephemeral branch's PR is fully gated.
+- Run `make hooks` once per clone to install the pre-commit hook (gofmt + golangci-lint).
 
 ## Setup
-Apply the whole model (repo, branches, rulesets) with:
 ```bash
-VISIBILITY=private ./scripts/setup-github.sh   # or VISIBILITY=public
+VISIBILITY=public ./scripts/setup-github.sh   # creates repo, pushes main, applies main-protection
 ```
-The script is idempotent — safe to re-run.
+Idempotent — safe to re-run.

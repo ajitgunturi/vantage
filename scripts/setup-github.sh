@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Idempotent GitHub bootstrap for the vantage repo.
+# Idempotent GitHub bootstrap for the vantage repo (solo-dev model — see docs/adr/0008).
 #
-# Creates the repo, pushes main + the 5 long-lived feature branches, and applies
-# Rulesets implementing the agreed branching model (see docs/adr/0006 + docs/BRANCHING.md):
-#   - main          : protected — PR required, `ci-success` status check required, no force-push, no deletion
-#   - feat/*        : protected — no force-push, no deletion (direct commits allowed, no required CI)
-#   - feature branches are NEVER auto-deleted on merge
+# Creates the repo, pushes main, and applies a single Ruleset:
+#   - main : protected — PR required, `ci-success` status check required, no force-push, no deletion
 #
-# Safe to re-run: skips what already exists. Requires `gh auth login` (scopes: repo, workflow, delete_repo).
+# Work happens on ephemeral, unprotected branches (feat/*, fix/*, chore/*) that are PR'd to main
+# and deleted after merge. No long-lived feature branches.
+#
+# Safe to re-run: skips what already exists. Requires `gh auth login` (scopes: repo, workflow).
 set -euo pipefail
 
 OWNER="ajitgunturi"
 REPO="vantage"
 SLUG="${OWNER}/${REPO}"
 VISIBILITY="${VISIBILITY:-private}"   # override: VISIBILITY=public ./scripts/setup-github.sh
-FEATURE_BRANCHES=(feat/mq feat/streamer feat/collector feat/apigateway feat/k8s-infra)
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
@@ -39,19 +38,7 @@ gh api -X PATCH "repos/${SLUG}" -F delete_branch_on_merge=false >/dev/null
 say "Pushing main"
 git push -u origin main
 
-# 4. Create + push the 5 long-lived feature branches off main.
-for br in "${FEATURE_BRANCHES[@]}"; do
-  if git show-ref --verify --quiet "refs/heads/${br}"; then
-    say "Local branch ${br} exists"
-  else
-    say "Creating local branch ${br}"
-    git branch "${br}" main
-  fi
-  say "Pushing ${br}"
-  git push -u origin "${br}"
-done
-
-# 5. Apply Rulesets (delete-then-create by name → idempotent).
+# 4. Apply the main Ruleset (delete-then-create by name → idempotent).
 apply_ruleset() {
   local name="$1" payload="$2"
   local existing
@@ -90,21 +77,7 @@ read -r -d '' MAIN_RULESET <<'JSON' || true
 }
 JSON
 
-read -r -d '' FEATURE_RULESET <<'JSON' || true
-{
-  "name": "feature-protection",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/heads/feat/**"], "exclude": [] } },
-  "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" }
-  ]
-}
-JSON
-
 apply_ruleset "main-protection" "$MAIN_RULESET"
-apply_ruleset "feature-protection" "$FEATURE_RULESET"
 
-say "Done. Branches: main + ${FEATURE_BRANCHES[*]}"
-say "main requires a PR with the 'ci-success' check; feat/* protected from deletion/force-push."
+say "Done. main is protected — PRs require the 'ci-success' check to merge."
+say "Work on ephemeral branches (feat/*, fix/*, chore/*), PR to main, delete after merge."
