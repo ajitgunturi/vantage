@@ -92,15 +92,49 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Which phases cover which requirements. **Populated during roadmap creation.**
 
+> **GATE 0 (ADR-0005):** Not a requirement — a schema-freezing decision gate. Must read *Accepted*
+> before Phase 2 (partition key), Phase 5 (collector schema), and Phase 6 (`{id}` routing).
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _(roadmapper fills this in)_ | — | Pending |
+| MQ-01 | Phase 1 | Pending |
+| MQ-08 | Phase 1 | Pending |
+| MQ-05 | Phase 1 | Pending |
+| TEST-01 | Phase 1 (anchored; cross-cutting TDD across all logic phases) | Pending |
+| MQ-02 | Phase 2 | Pending |
+| MQ-03 | Phase 2 | Pending |
+| MQ-04 | Phase 2 | Pending |
+| MQ-06 | Phase 2 | Pending |
+| MQ-07 | Phase 3 | Pending |
+| MQ-09 | Phase 3 (anchored; verified per-service in Phase 7) | Pending |
+| STREAM-01 | Phase 4 | Pending |
+| STREAM-02 | Phase 4 | Pending |
+| STREAM-03 | Phase 4 | Pending |
+| STREAM-04 | Phase 4 | Pending |
+| COLL-01 | Phase 5 | Pending |
+| COLL-02 | Phase 5 | Pending |
+| COLL-03 | Phase 5 | Pending |
+| COLL-04 | Phase 5 | Pending |
+| COLL-05 | Phase 5 | Pending |
+| API-01 | Phase 6 | Pending |
+| API-02 | Phase 6 | Pending |
+| API-03 | Phase 6 | Pending |
+| API-04 | Phase 6 | Pending |
+| DEPLOY-01 | Phase 7 | Pending |
+| DEPLOY-02 | Phase 7 | Pending |
+| DEPLOY-03 | Phase 7 | Pending |
+| DEPLOY-04 | Phase 7 | Pending |
+| OBS-01 | Phase 8 | Pending |
+| OBS-02 | Phase 8 | Pending |
+| TEST-02 | Phase 9 | Pending |
+| DOC-01 | Phase 9 | Pending |
+| DOC-02 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 28 total
-- Mapped to phases: _(pending roadmap)_
-- Unmapped: _(pending roadmap)_
+- Mapped to phases: 28 (100%)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-24*
-*Last updated: 2026-06-24 after initial definition*
+*Last updated: 2026-06-24 after roadmap creation (28/28 mapped across 9 phases)*
