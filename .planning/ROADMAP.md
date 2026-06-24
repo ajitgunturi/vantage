@@ -73,6 +73,53 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 8: Prometheus Metrics + Performance Harness** - Per-service metrics, then (10:2)/(2:10)/(5:5) characterization table + analysis
 - [ ] **Phase 9: Integration Tests + Documentation** - End-to-end no-loss/ordering-across-restart test + README + AI-usage doc
 
+## Assignment Coverage (Component → Phase)
+
+Maps every component, deliverable, and constraint from the assignment (`.planning/PROJECT.md` §1–§3)
+to the phase that builds it. This is the assignment-component lens; the REQ-ID lens is the
+Traceability table in `.planning/REQUIREMENTS.md` (counts derive from there).
+
+**Mandated components (PROJECT.md §1):**
+
+| Assignment component | Phase(s) | Requirements |
+|----------------------|----------|--------------|
+| **Messaging Queue** — custom-built, durable, scalable, available (no Kafka/Rabbit/ZeroMQ) | **1** (segment log + recovery + backpressure), **2** (gRPC produce/consume/commit, partitions, offsets, delivery), **3** (client lib + graceful shutdown) | MQ-01…09 |
+| **Telemetry Streamer** (producer) — loop CSV, re-stamp ts, produce | **4** | STREAM-01…04 |
+| **Telemetry Collector** (consumer) — consume, parse, persist | **5** | COLL-01…04 |
+| **API Gateway** — REST + auto-generated OpenAPI | **6** | API-01…04 |
+
+**Required API endpoints (PROJECT.md §1):**
+
+| Endpoint | Phase | Requirement |
+|----------|-------|-------------|
+| `GET /api/v1/gpus` | 6 | API-01 |
+| `GET /api/v1/gpus/{id}/telemetry` (time-ordered) | 6 | API-02 |
+| `…?start_time=&end_time=` (inclusive window) | 6 | API-03 |
+
+**User-added requirements (PROJECT.md §2):**
+
+| Requirement | Phase(s) | Requirements |
+|-------------|----------|--------------|
+| **PostgreSQL** for collector persistence | 5 | COLL-05 |
+| **Custom MQ durable persistence** — survives downtime | 1 (segment log + crash recovery), 2 (durable offsets) | MQ-01, MQ-03, MQ-08 |
+| **Performance characterization** across producer/consumer ratios (>, <, =) | 8 | OBS-01, OBS-02 |
+
+**Deliverables & cross-cutting constraints (PROJECT.md §1, §6):**
+
+| Deliverable / constraint | Phase(s) | Requirements / notes |
+|--------------------------|----------|----------------------|
+| **Elasticity** — scale streamers/collectors up/down (≤10 each) | 4 (streamer 1–10), 5 (collector 1–10), 7 (dynamic-scale demo 10×10) | STREAM-04, COLL-04, DEPLOY-04; enabled by MQ-04 (partitions ≥10) |
+| **Dockerfiles** | 7 | DEPLOY-01 |
+| **Helm charts** (k8s deploy) | 7 | DEPLOY-02, DEPLOY-03 |
+| **OpenAPI auto-generated via Makefile** | 6 | API-04 (oapi-codegen `make openapi`) |
+| **Unit tests** (required) | cross-cutting — TDD every phase, anchored Phase 1 | TEST-01 |
+| **System/integration tests** (bonus) | 9 | TEST-02 |
+| **Makefile tests + coverage reporting** | scaffold (built ✓), enforced per phase | 90% line all modules / 100% branch on MQ core |
+| **README** — architecture, build, install, sample workflow | incremental all phases, finalized 9 | DOC-01 |
+| **AI-usage doc** — exact prompts + where they fell short | incremental via `.planning/`, finalized 9 | DOC-02 |
+| **Local demo** (`make demo` — our addition) | 5 (core pipeline), 6 (+ API) | DEPLOY-05 |
+| **Custom MQ only · ≤10 instances · idiomatic Go + graceful errors** | honored across all phases | see PROJECT.md § Constraints; MQ-09 (graceful shutdown) |
+
 ## Phase Details
 
 ### Phase 1: Broker Durable Segment Log + Crash Recovery
