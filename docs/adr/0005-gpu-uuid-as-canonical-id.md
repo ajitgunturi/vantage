@@ -1,26 +1,29 @@
 # ADR-0005: GPU UUID as the canonical identity
 
-- Status: Proposed
-- Date: 2026-06-24
+- Status: Accepted
+- Date: 2026-06-24 (proposed); 2026-06-24 (accepted)
 
 ## Context
 The API uses `{id}` in `GET /api/v1/gpus/{id}/telemetry`. In the dataset, `gpu_id` is only the local
 index 0–7 and repeats across all 31 hosts; the globally unique, stable identifier is the DCGM
 **`uuid`** (e.g. `GPU-5fd4f087-...`). 247 distinct UUIDs were measured.
 
-## Decision (proposed)
-Treat **`uuid` as the canonical GPU identity** and the value of `{id}` in the API and the primary key
-in Postgres. Expose `hostname` + `gpu_id` as attributes for human readability, and optionally accept
-a `hostname:gpu_id` composite as an alternate lookup later.
+## Decision
+Treat **`uuid` as the canonical GPU identity**: the value of `{id}` in the API, the conflict/primary
+key in Postgres (`(uuid, metric_name, ts)`), and the MQ partition routing key (`hash(uuid) % N`).
+Expose `hostname` + `gpu_id` as attributes for human readability, and optionally accept a
+`hostname:gpu_id` composite as an alternate lookup later.
 
 ## Driving Prompt
-No direct user prompt yet — flagged as open question in `PROJECT.md` §5. Defaulting to UUID pending
-explicit confirmation; recorded so the choice is visible to the panel.
+Confirmed by the user on 2026-06-24 during GSD project initialization, as the GATE 0 decision ahead of
+Phases 2/5/6. Backed by project research (`.planning/research/SUMMARY.md`, `PITFALLS.md` P0): 247
+distinct, globally-unique UUIDs measured in the dataset; `gpu_id` is host-local only.
 
 ## Consequences
 - (+) Globally unique, stable across host reboots; clean PK and partition key for the MQ.
 - (−) UUIDs are long/opaque in URLs; mitigated by the `/gpus` list returning friendly attributes.
-- ⚠️ **Needs user confirmation** before it moves to Accepted and the schema is frozen.
+- Schema may now be frozen: `telemetry` PK `(uuid, metric_name, ts)`, partition key = `uuid`,
+  API `{id}` = `uuid`. Unblocks Phase 2 (partition key), Phase 5 (collector schema), Phase 6 (`{id}`).
 
 ## Alternatives considered
 - **`gpu_id` (0–7)** — rejected: not globally unique.

@@ -12,18 +12,15 @@ producer/consumer ratios, and finally cement no-loss/ordering claims with end-to
 and the mandatory README + AI-usage documentation. Each layer's correctness is verified before the next
 is built on top of it — if the log loses messages, nothing downstream matters.
 
-## Pre-Build Gate (GATE 0): ADR-0005 must be Accepted
+## Pre-Build Gate (GATE 0): ADR-0005 — ✅ ACCEPTED (2026-06-24)
 
-> **This is a decision gate, not a phase. It costs nothing to unblock and prevents a multi-module rewrite.**
+> **Resolved during project initialization. Phases 2/5/6 are unblocked.**
 
-ADR-0005 (canonical GPU identity = `uuid`) is still **Proposed**. It gates three things:
-the MQ partition routing key (`hash(uuid) % N`), the Postgres PK / idempotency key
-(`(uuid, metric_name, ts)`), and the API `{id}` path parameter. Code must **not** land in
-partition routing (Phase 2), the collector schema (Phase 5), or API routing (Phase 6) until
-ADR-0005 reads **Accepted**. If the API must expose a human-friendly id, decide now whether
-`{id}` is the `uuid` directly or a lookup that resolves to `uuid` internally — then freeze it in
-ADR-0005. **Stop-the-line:** any PR touching partition key, collector schema, or API routing while
-ADR-0005 is *Proposed*.
+ADR-0005 (canonical GPU identity = `uuid`) is **Accepted** as of 2026-06-24. The schema is frozen:
+the MQ partition routing key = `hash(uuid) % N`, the Postgres PK / idempotency key =
+`(uuid, metric_name, ts)`, and the API `{id}` path parameter = `uuid` (with `hostname` + `gpu_id`
+exposed as friendly attributes via the `/gpus` list). Partition routing (Phase 2), the collector
+schema (Phase 5), and API routing (Phase 6) may now proceed against this identity.
 
 ## Phases
 
@@ -68,7 +65,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Consumer-group committed offsets per `(group, partition)` survive a broker restart — after restart, a consumer resumes from its last committed offset, never re-reading committed data nor skipping uncommitted data.
   4. Produce, Consume, and Commit RPCs work end-to-end against the live segment log over gRPC (single-writer-per-partition; `-race` clean).
 **Plans**: TBD
-**Gate**: ADR-0005 must read **Accepted** before partition-key code lands (GATE 0).
+**Gate**: ADR-0005 **Accepted** (GATE 0, 2026-06-24) — partition key = `uuid`.
 
 ### Phase 3: MQ Client Library + Graceful Shutdown Seam
 **Goal**: A Go client library (`mq/client`) that gives producers and consumers a clean API over gRPC — the single integration seam that decouples app services from the broker — plus the SIGTERM-drain shutdown pattern every service reuses.
@@ -102,7 +99,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The collector commits its consumer offset only after the batch is durably persisted (commit-after-persist) — a crash injected between persist and commit causes redelivery absorbed as a no-op, never a skip.
   4. Running 1 to 10 collector instances each owns ≥1 partition and ingests without exceeding Postgres `max_connections` (pgxpool sized so `collectors × MaxConns + API < max_connections`).
 **Plans**: TBD
-**Gate**: ADR-0005 must read **Accepted** before schema/upsert code lands (GATE 0).
+**Gate**: ADR-0005 **Accepted** (GATE 0, 2026-06-24) — PK = `(uuid, metric_name, ts)`.
 
 ### Phase 6: API Gateway
 **Goal**: A thin read-only REST layer exposing GPUs and their time-ordered telemetry, with an auto-generated OpenAPI spec — depends only on the Postgres schema, no MQ coupling.
@@ -114,7 +111,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. `make openapi` regenerates the OpenAPI (Swagger) spec from the hand-authored `openapi.yaml` via oapi-codegen (chi-server handlers).
   4. The gateway runs with RequestID/Recoverer/Timeout/slog middleware and serves `/healthz` + `/readyz`.
 **Plans**: TBD
-**Gate**: ADR-0005 must read **Accepted** before `{id}` routing is frozen (GATE 0).
+**Gate**: ADR-0005 **Accepted** (GATE 0, 2026-06-24) — `{id}` = `uuid`.
 **UI hint**: yes
 
 ### Phase 7: Helm/Docker Packaging + Dynamic Scale Demo

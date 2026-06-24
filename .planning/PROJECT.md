@@ -88,7 +88,7 @@ across producer/consumer ratios up to 10×10. If the MQ loses or corrupts messag
 | ADR-0002: PostgreSQL for collector data | Open-source DB allowed; relational fits the dimension/fact model | ✓ Good |
 | ADR-0003: Multi-module monorepo + `go.work` | Independent deployables, shared workspace, clean module boundaries | ✓ Good (built) |
 | ADR-0004: gRPC streaming transport for MQ | Framed, efficient, typed contract over HTTP/2 | ✓ Good (contract + stubs built) |
-| ADR-0005: Canonical GPU id = `uuid` | Globally unique/stable; `gpu_id` only unique within a host | ⚠️ Revisit — **Proposed**; confirm before freezing DB schema & API `{id}` |
+| ADR-0005: Canonical GPU id = `uuid` | Globally unique/stable; `gpu_id` only unique within a host | ✓ Accepted (2026-06-24) — PK `(uuid, metric_name, ts)`, partition key, API `{id}` all = `uuid` |
 | kind for local k8s dev | Lightweight, CI-friendly | ✓ Good (tooling; PROMPT_HISTORY) |
 | MQ persistence depth/fidelity | Segment-log direction set; full-WAL vs bounded TBD | — Pending (decide at MQ build) |
 | Streaming cadence (per-row / batch / loop) | Implementation detail of the streamer | — Pending (decide at streamer build) |

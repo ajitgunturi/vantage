@@ -92,8 +92,8 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Which phases cover which requirements. **Populated during roadmap creation.**
 
-> **GATE 0 (ADR-0005):** Not a requirement — a schema-freezing decision gate. Must read *Accepted*
-> before Phase 2 (partition key), Phase 5 (collector schema), and Phase 6 (`{id}` routing).
+> **GATE 0 (ADR-0005): ✅ Accepted 2026-06-24** — canonical GPU id = `uuid`. Schema frozen
+> (PK `(uuid, metric_name, ts)`, partition key = `uuid`, API `{id}` = `uuid`). Phases 2/5/6 unblocked.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|

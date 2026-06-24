@@ -55,7 +55,7 @@ Recent decisions affecting current work:
 
 - ADR-0001: Custom MQ = append-only segment-log durability (direction set; full-WAL vs bounded TBD at Phase 1 build).
 - ADR-0004: gRPC streaming transport — contract + stubs already built.
-- ADR-0005: Canonical GPU id = `uuid` — **Proposed, must be Accepted before Phase 2 partition key / Phase 5 schema / Phase 6 `{id}` routing.**
+- ADR-0005: Canonical GPU id = `uuid` — **Accepted 2026-06-24.** Schema frozen: PK `(uuid, metric_name, ts)`, partition key = `uuid`, API `{id}` = `uuid`. Phases 2/5/6 unblocked.
 
 ### Pending Todos
 
@@ -63,7 +63,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- **GATE 0 (ADR-0005):** Schema-freezing decision. Block any partition-key (Phase 2), collector-schema (Phase 5), or API-routing (Phase 6) code until ADR-0005 reads *Accepted*. Costs nothing to unblock early; prevents a multi-module rewrite.
+- **GATE 0 (ADR-0005): ✅ RESOLVED 2026-06-24** — `uuid` accepted as canonical identity. Phases 2/5/6 unblocked; schema may be frozen.
 - **Phase 1 deeper research:** Highest-risk phase — run `/gsd-plan-phase --research-phase 1` before planning (group-commit channel, CRC32c framing, segment-roll directory fsync, truncation state machine, crash-recovery harness).
 - **WAL depth (ADR-0001):** confirm bounded Kafka-lite segment log vs full WAL in the Phase 1 plan.
 
