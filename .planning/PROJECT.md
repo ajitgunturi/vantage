@@ -92,7 +92,9 @@ is planned and executed:
 3. **Implement to green.** Implementation exists only to turn those tests green. The suite goes from
    all-red at the start of the phase to all-green at the end as each unit of scope is completed.
 4. **Done = green + gates.** A phase is complete only when its entire test suite passes *and* the
-   coverage gates hold — 90% line / 100% branch on logic (`make cover-check`).
+   coverage gates hold — **90% line on all modules** (`make cover-check`) and **100% branch on the MQ
+   core** (`mq/` logic pkgs, `make cover-logic`). The app services (streamer/collector/apigateway) are
+   held to the 90%-line gate, not 100% branch — avoids contrived tests on defensive branches.
 5. **No green-by-deletion.** Tests encode the spec; weakening or removing a test to pass requires a
    spec change (and an updated SPEC.md), never a silent code shortcut.
 

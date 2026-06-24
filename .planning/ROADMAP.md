@@ -19,6 +19,32 @@ failing test suite for the phase scope (**red**) → implement only to turn it *
 when the suite passes and coverage gates hold (90% line / 100% branch). No green-by-deletion. Full
 statement in `.planning/PROJECT.md` § Delivery Method.
 
+## Working Approach & Submission
+
+**Submission cut-line (bounds gold-plating):**
+- **Phases 1–6 = credible submission** — working end-to-end pipeline (durable MQ → streamer →
+  collector → Postgres) + the 3 REST endpoints + OpenAPI. If time runs short, ship from here.
+- **Phase 7** — Helm/Docker + dynamic-scale demo (deployability).
+- **Phase 8** — Prometheus + perf harness: the marquee bonus; high value once 1–7 are solid.
+- **Phase 9** — integration tests + final docs polish.
+
+**Ceremony weighting (do NOT run full GSD on every phase):**
+- **Phases 1–2 (MQ core):** full treatment — spec → phase-research → plan → plan-check → execute(TDD)
+  → verify. The hard, graded centerpiece; worth the rigor.
+- **Phases 3–9 (well-trodden):** lighter — spec → plan → execute(TDD). Skip per-phase research (none
+  flagged) and skip discuss unless something is genuinely unclear. Keep plan-check + verify (cheap).
+
+**Documentation cadence:** README + AI-usage doc grow **incrementally each phase** — capture
+decisions/interventions as `.planning/` artifacts plus a short README section per phase. Phase 9 only
+*finalizes*; it does not write the docs from scratch.
+
+**Early demo:** a `make demo` docker-compose path (broker + streamer + collector + Postgres, then +
+API) stands up the full pipeline locally without kind/Helm — for fast grader runs and earlier
+integration feedback. First stood up in **Phase 5 (DEPLOY-05)**, extended with the API in Phase 6.
+
+**Coverage:** 90% line on all modules; **100% branch on the MQ core only** (`mq/`). App services
+(streamer/collector/apigateway) get the line gate, not the branch gate.
+
 ## Pre-Build Gate (GATE 0): ADR-0005 — ✅ ACCEPTED (2026-06-24)
 
 > **Resolved during project initialization. Phases 2/5/6 are unblocked.**
@@ -99,12 +125,13 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Phase 5: Collector + PostgreSQL Schema
 **Goal**: A stateless consumer that parses DCGM rows and idempotently persists them into a normalized Postgres schema using commit-after-persist — scaling from 1 to 10 instances with no duplicate rows on redelivery.
 **Depends on**: Phase 3 (client lib); parallelizable with Phase 4 (shares only `mq/client` + this schema)
-**Requirements**: COLL-01, COLL-02, COLL-03, COLL-04, COLL-05
+**Requirements**: COLL-01, COLL-02, COLL-03, COLL-04, COLL-05, DEPLOY-05
 **Success Criteria** (what must be TRUE):
   1. The Postgres schema normalizes into `gpus` (dimension: uuid, host, gpu_id, device, model_name) and `telemetry` (fact) with `PRIMARY KEY (uuid, metric_name, ts)` and a `(uuid, ts)` index — the idempotency anchor and the time-window query path both exist before upsert logic.
   2. The collector consumes from the MQ, parses DCGM rows, and upserts via `INSERT … ON CONFLICT (uuid, metric_name, ts) DO NOTHING` — sending the identical message twice yields exactly one row; 1000 messages with 30% duplicates yield exactly the distinct count.
   3. The collector commits its consumer offset only after the batch is durably persisted (commit-after-persist) — a crash injected between persist and commit causes redelivery absorbed as a no-op, never a skip.
   4. Running 1 to 10 collector instances each owns ≥1 partition and ingests without exceeding Postgres `max_connections` (pgxpool sized so `collectors × MaxConns + API < max_connections`).
+  5. `make demo` (docker-compose) stands up broker + streamer + collector + Postgres locally and the core pipeline runs end-to-end without kind/Helm — verified by querying ingested rows in Postgres (DEPLOY-05; extended with the API in Phase 6).
 **Plans**: TBD
 **Gate**: ADR-0005 **Accepted** (GATE 0, 2026-06-24) — PK = `(uuid, metric_name, ts)`.
 

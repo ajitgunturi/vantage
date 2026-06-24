@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-06-24)
 Phase: 1 of 9 (Broker Durable Segment Log + Crash Recovery)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-06-24 — Roadmap created (9 phases, 28/28 requirements mapped)
+Last activity: 2026-06-24 — Roadmap created (9 phases, 29/29 requirements mapped)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -78,5 +78,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-06-24
-Stopped at: ROADMAP.md + STATE.md created; REQUIREMENTS.md traceability populated (28/28 mapped)
+Stopped at: scope right-sized — cut-line + ceremony weighting + make demo (DEPLOY-05); 29/29 mapped
 Resume file: None

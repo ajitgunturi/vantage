@@ -49,6 +49,7 @@
 - [ ] **DEPLOY-02**: A Helm umbrella chart deploys all services + PostgreSQL with the broker as a StatefulSet (RWO PVC) and stateless services as Deployments
 - [ ] **DEPLOY-03**: The full stack deploys to a local kind cluster via Makefile targets
 - [ ] **DEPLOY-04**: Streamers and collectors can be dynamically scaled up/down (demonstrated to 10 each) with no message loss
+- [ ] **DEPLOY-05**: A `make demo` (docker-compose) path stands up the full pipeline locally without kind/Helm — broker + streamer + collector + Postgres (+ API once Phase 6 lands) — for fast grader runs and early integration feedback
 
 ### Observability & Performance
 
@@ -59,7 +60,7 @@
 
 - [ ] **TEST-01**: Unit tests cover business logic with coverage reported via Makefile (gate: 90% line, 100% branch on logic)
 - [ ] **TEST-02**: An end-to-end integration test proves no-loss + correct per-GPU ordering across a broker restart
-- [ ] **DOC-01**: README documents architecture & design, build/packaging, install workflow, and a sample user workflow
+- [ ] **DOC-01**: README documents architecture & design, build/packaging, install workflow, and a sample user workflow — **grown incrementally each phase** (a section per phase), finalized in Phase 9, not written from scratch at the end
 - [ ] **DOC-02**: AI-usage doc **synthesized from the `.planning/` evidence trail** (GSD research, per-phase SPEC/PLAN/VERIFICATION, commit history) plus the frozen pre-GSD `docs/PROMPT_HISTORY.md` appendix — records the prompts/decisions that built the system, where AI fell short, and the manual interventions required
 
 ## v2 Requirements
@@ -124,6 +125,7 @@ Which phases cover which requirements. **Populated during roadmap creation.**
 | DEPLOY-02 | Phase 7 | Pending |
 | DEPLOY-03 | Phase 7 | Pending |
 | DEPLOY-04 | Phase 7 | Pending |
+| DEPLOY-05 | Phase 5 | Pending |
 | OBS-01 | Phase 8 | Pending |
 | OBS-02 | Phase 8 | Pending |
 | TEST-02 | Phase 9 | Pending |
@@ -131,10 +133,10 @@ Which phases cover which requirements. **Populated during roadmap creation.**
 | DOC-02 | Phase 9 | Pending |
 
 **Coverage:**
-- v1 requirements: 28 total
-- Mapped to phases: 28 (100%)
+- v1 requirements: 29 total
+- Mapped to phases: 29 (100%)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-24*
-*Last updated: 2026-06-24 after roadmap creation (28/28 mapped across 9 phases)*
+*Last updated: 2026-06-24 — added DEPLOY-05 (make demo); 29/29 mapped across 9 phases*

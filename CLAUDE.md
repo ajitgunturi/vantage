@@ -22,7 +22,7 @@ Multi-module via `go.work`. Run `go` commands from the module dir, or use Makefi
 
 ## Build / test / verify (use the Makefile, don't hand-roll)
 - `make build` — build all binaries.
-- `make test` — unit tests. `make cover` / `make cover-check` — coverage (gate: 90% line, 100% branch on logic).
+- `make test` — unit tests. `make cover` / `make cover-check` — coverage. Gates: **90% line on all modules**; **100% branch on the MQ core only** (`mq/` logic pkgs, via `make cover-logic`). App services (streamer/collector/apigateway) get the 90%-line gate, not the 100%-branch gate.
 - `make lint` — golangci-lint. `make proto` — regenerate gRPC stubs from `mq/proto`.
 - `make hooks` — install the pre-commit hook (run once per clone). `make kind` / `make helm` — local k8s.
 - After changing Go code, run the relevant module's tests before declaring done; fix failures autonomously.
@@ -31,8 +31,9 @@ Multi-module via `go.work`. Run `go` commands from the module dir, or use Makefi
 - Idiomatic Go: `slog` for logging, `testify` for tests, `pgx` for Postgres, Prometheus client for metrics.
 - **Spec-first + TDD for every phase** (not only business logic): lock the phase spec (`/gsd-spec-phase N`),
   then write the full failing test suite for the phase scope (starts **red**) and implement only to turn it
-  **green**. A phase is done when its suite passes and coverage gates hold (90% line / 100% branch,
-  `make cover-check`). No green-by-deletion — weakening a test requires a spec change. See `.planning/PROJECT.md` § Delivery Method.
+  **green**. A phase is done when its suite passes and coverage gates hold (90% line all modules;
+  100% branch on the MQ core, `make cover-check` + `make cover-logic`). No green-by-deletion — weakening
+  a test requires a spec change. See `.planning/PROJECT.md` § Delivery Method.
 - Collector writes must be idempotent: upsert on `(uuid, metric_name, ts)`.
 - Canonical GPU identity = `uuid` (ADR-0005, **Accepted** 2026-06-24 — PK `(uuid, metric_name, ts)`, partition key, API `{id}`).
 - Conventional Commits; no `Co-Authored-By` trailer. Ephemeral `feat/*|fix/*|chore/*` branch → PR to `main` → merge green.

@@ -48,7 +48,7 @@ cover: test ## Print per-module coverage totals
 cover-check: test ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage
 	COVERAGE_THRESHOLD=$(COVERAGE_THRESHOLD) bash scripts/coverage-gate.sh $(addsuffix /coverage.out,$(MODULES))
 
-cover-logic: ## Enforce 100% branch/logic coverage on internal/ packages (gobco)
+cover-logic: ## Enforce 100% branch/logic coverage on the MQ core (mq/ logic pkgs) (gobco)
 	bash scripts/logic-coverage.sh
 
 cover-html: test ## Write per-module HTML coverage reports
