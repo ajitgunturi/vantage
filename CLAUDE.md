@@ -25,7 +25,10 @@ Multi-module via `go.work`. Run `go` commands from the module dir, or use Makefi
 
 ## Conventions
 - Idiomatic Go: `slog` for logging, `testify` for tests, `pgx` for Postgres, Prometheus client for metrics.
-- TDD for business logic (MQ segment log, collector upserts, API handlers) — test first, then implement.
+- **Spec-first + TDD for every phase** (not only business logic): lock the phase spec (`/gsd-spec-phase N`),
+  then write the full failing test suite for the phase scope (starts **red**) and implement only to turn it
+  **green**. A phase is done when its suite passes and coverage gates hold (90% line / 100% branch,
+  `make cover-check`). No green-by-deletion — weakening a test requires a spec change. See `.planning/PROJECT.md` § Delivery Method.
 - Collector writes must be idempotent: upsert on `(uuid, metric_name, ts)`.
 - Canonical GPU identity = `uuid` (ADR-0005, still *Proposed* — confirm before freezing DB schema).
 - Conventional Commits; no `Co-Authored-By` trailer. Ephemeral `feat/*|fix/*|chore/*` branch → PR to `main` → merge green.

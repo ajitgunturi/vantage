@@ -80,6 +80,22 @@ across producer/consumer ratios up to 10×10. If the MQ loses or corrupts messag
 - **Testing**: unit tests required (system tests bonus); coverage via Makefile; OpenAPI auto-generated via Makefile — *deliverable + grading criterion*.
 - **Documentation**: comprehensive README + AI-usage doc with exact prompts and where they fell short — *explicit deliverable*.
 
+## Delivery Method (standing convention — applies to every phase)
+
+Every phase is **spec-first and test-driven**, no exceptions. This is a hard gate on how each phase
+is planned and executed:
+
+1. **Spec first.** Before any implementation, lock the phase spec (`/gsd-spec-phase N`) — exactly what
+   the phase delivers and its acceptance criteria. Planning derives from the spec, not from code.
+2. **Tests first (red).** Each phase starts by writing the *full failing test suite* for its scope —
+   unit tests for the logic plus the phase's acceptance/integration checks. The suite begins **red**.
+3. **Implement to green.** Implementation exists only to turn those tests green. The suite goes from
+   all-red at the start of the phase to all-green at the end as each unit of scope is completed.
+4. **Done = green + gates.** A phase is complete only when its entire test suite passes *and* the
+   coverage gates hold — 90% line / 100% branch on logic (`make cover-check`).
+5. **No green-by-deletion.** Tests encode the spec; weakening or removing a test to pass requires a
+   spec change (and an updated SPEC.md), never a silent code shortcut.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |

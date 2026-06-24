@@ -12,6 +12,13 @@ producer/consumer ratios, and finally cement no-loss/ordering claims with end-to
 and the mandatory README + AI-usage documentation. Each layer's correctness is verified before the next
 is built on top of it — if the log loses messages, nothing downstream matters.
 
+## Delivery Method (applies to every phase)
+
+**Spec-first + TDD, no exceptions.** Each phase: lock a SPEC (`/gsd-spec-phase N`) → write the full
+failing test suite for the phase scope (**red**) → implement only to turn it **green** → phase is done
+when the suite passes and coverage gates hold (90% line / 100% branch). No green-by-deletion. Full
+statement in `.planning/PROJECT.md` § Delivery Method.
+
 ## Pre-Build Gate (GATE 0): ADR-0005 — ✅ ACCEPTED (2026-06-24)
 
 > **Resolved during project initialization. Phases 2/5/6 are unblocked.**
