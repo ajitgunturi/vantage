@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 02
-current_phase_name: storage-foundation-schema-connection-pool
-status: planned
+current_phase: 03
+current_phase_name: pipeline-streamer-collector-integration
+status: executing
 stopped_at: Phase 02 executed + verified (8/8 must-haves; coverage 94.1%; smoke-02 green)
-last_updated: "2026-06-29T07:53:48.638Z"
+last_updated: "2026-06-29T11:00:33.816Z"
 progress:
   total_phases: 7
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 15
+  completed_plans: 12
   percent: 43
 ---
 
@@ -21,15 +21,15 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 02 — storage-foundation-schema-connection-pool
+- **Current focus:** Phase 03 — pipeline-streamer-collector-integration
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 03 (pipeline-streamer-collector-integration) — PLANNED ✓
-- **Plan:** 4 plans across 3 waves (checker-passed)
-- **Status:** Phase 02 verified (8/8); Phase 03 planned (4 plans, 3 waves) — ready to execute
-- **Progress:** [██████████] 100%
+- **Phase:** 03 (pipeline-streamer-collector-integration) — EXECUTING
+- **Plan:** 2 of 4
+- **Status:** Ready to execute
+- **Progress:** [████████░░] 80%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,7 +70,7 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T07:53:10.638Z
+**Last session:** 2026-06-29T10:59:57.546Z
 **Stopped at:** Completed 02-01-PLAN.md
 **Resume file:** .planning/phases/02-storage-foundation-schema-connection-pool/02-02-PLAN.md
 
@@ -92,6 +92,7 @@ progress:
 | Phase 01.1 P02 | 4m | 2 tasks | 5 files |
 | Phase 02 P01 | 13min | 3 tasks | 7 files |
 | Phase 02 P02 | 4m | 3 tasks | 5 files |
+| Phase 03 P01 | 116 | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -109,3 +110,5 @@ progress:
 - [Phase 02]: uq_gpu_metrics_natural_key (gpu_id, metric_name, timestamp) — Phase 3 must use INSERT...ON CONFLICT, NOT CopyFrom (CopyFrom cannot express ON CONFLICT) (plan 02-01)
 - [Phase 02]: RFC3339Nano Streamer restamp locked — TIMESTAMPTZ microsecond precision; second-granularity restamps collapse same-second readings on natural key (plan 02-01)
 - [Phase ?]: cmd/migrate is a standalone binary — reusable by Phase-5 k8s init-job without shell dependency (plan 02-02)
+- [Phase ?]: GpuMetric.GpuID sourced from msg.GetUuid() — COLL-04/D-04 single enforcement point
+- [Phase ?]: InsertSQL positional args - in DDL column order — shared Collector contract
