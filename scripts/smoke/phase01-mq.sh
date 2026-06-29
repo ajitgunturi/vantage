@@ -74,6 +74,17 @@ go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$HALF" -mode consume -cred
 go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$REST" -mode consume -credit 8  || fail "mqprobe drain-remainder failed (LOSS: ${REST} messages not retained)"
 pass "late join no-loss — read ${HALF}/${N}, the remaining ${REST} were retained and drained (zero loss)"
 
+# Credit-boundary path: a consumer whose FIRST credit message is <= 0 must NOT
+# deadlock. The broker substitutes its own default window (MQ_CONSUME_CREDIT) and
+# still delivers every message. mqprobe sends Credit verbatim, so -credit 0 puts a
+# literal zero on the wire — exercising server.go's `if credit <= 0` substitution.
+# A regression that dropped the default (granting an actual zero-token semaphore)
+# would hang here until mqprobe's timeout, failing the smoke run instead of prod.
+echo "credit boundary: producing ${N}, then consuming with -credit 0 (broker must substitute its default and drain all ${N})..."
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$N" -mode produce           || fail "mqprobe produce-only (credit boundary) failed"
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$N" -mode consume -credit 0  || fail "mqprobe consume with credit 0 failed — broker did not substitute its default window (zero-credit DEADLOCK)"
+pass "credit boundary — consumer requested 0, broker granted its default window and drained all ${N} (no deadlock)"
+
 # Cross-check the at-least-once control-plane counters (sed keeps this jq-free).
 # Parse the Plan-04 counter names: delivered_total (sends), consumed_total (acks),
 # redelivered_total (re-enqueued on disconnect-with-unacked; 0 on the happy path).
