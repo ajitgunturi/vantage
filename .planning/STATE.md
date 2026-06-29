@@ -5,13 +5,13 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: pipeline-streamer-collector-integration
 status: executing
-stopped_at: Phase 02 executed + verified (8/8 must-haves; coverage 94.1%; smoke-02 green)
-last_updated: "2026-06-29T11:10:28.861Z"
+stopped_at: Completed 03-03-PLAN.md (Collector microservice)
+last_updated: "2026-06-29T11:52:41.332Z"
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 43
 ---
 
@@ -27,9 +27,9 @@ progress:
 
 - **Milestone:** v1 (MVP)
 - **Phase:** 03 (pipeline-streamer-collector-integration) — EXECUTING
-- **Plan:** 3 of 4
+- **Plan:** 4 of 4
 - **Status:** Ready to execute
-- **Progress:** [█████████░] 87%
+- **Progress:** [█████████░] 93%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,9 +70,9 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T11:09:49.522Z
-**Stopped at:** Completed 02-01-PLAN.md
-**Resume file:** .planning/phases/02-storage-foundation-schema-connection-pool/02-02-PLAN.md
+**Last session:** 2026-06-29T11:52:41.327Z
+**Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
+**Resume file:** None
 
 - **Last action:** Plan 02-01 complete — pkg/db (New, Migrate, Config, FromEnv), migration SQL, and full integration suite (TestMigration, TestNew, TestUniqueConstraint, TestCompositeIndexUsed at 100k rows) all pass under -race.
 - **Next action:** Execute Phase 3 (`/gsd-execute-phase 3`). Wave 1 = 03-01 (pkg/models) ∥ 03-02 (Streamer); Wave 2 = 03-03 (Collector); Wave 3 = 03-04 (E2E + smoke-03). Integration/E2E need Rancher Docker env: `DOCKER_HOST=unix://$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`. Service logic lives in internal/streamer + internal/collector (thin cmd wrappers) so the ≥90% coverage gate reaches it.
@@ -94,6 +94,7 @@ progress:
 | Phase 02 P02 | 4m | 3 tasks | 5 files |
 | Phase 03 P01 | 116 | 2 tasks | 2 files |
 | Phase 03 P02 | 269s | 3 tasks | 5 files |
+| Phase 03-pipeline-streamer-collector-integration P03 | 27 | 2 tasks | 6 files |
 
 ## Decisions
 
@@ -115,3 +116,7 @@ progress:
 - [Phase ?]: InsertSQL positional args - in DDL column order — shared Collector contract
 - [Phase ?]: 03-02: RFC3339Nano restamp locked in for Streamer — second-granularity collapses same readings
 - [Phase ?]: 03-02: Stream exported seam once=true enables deterministic unit and bufconn tests without infinite production loop
+- [Phase ?]: Two-goroutine bidi split for gRPC Consume stream — recv goroutine sole Recv caller, batch goroutine sole Send caller
+- [Phase ?]: ctx.Err() != nil as sole reconnect exit discriminant in Run — gRPC maps server-side codes.Canceled to stdlib context.Canceled making errors.Is unreliable
+- [Phase ?]: grpcSrv.Stop() not GracefulStop in tests — GracefulStop blocks ~30s drain interval, Stop() immediately RSTs connections
+- [Phase ?]: ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING — Collector idempotency absorbs MQ at-least-once redeliveries without in-memory dedup state

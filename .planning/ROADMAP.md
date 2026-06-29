@@ -84,13 +84,13 @@ Plans:
   2. The Collector holds a long-lived `Consume` stream, auto-reconnects when the stream drops, maps the wire payload to the DB model, and batch-inserts to PostgreSQL via `pgxpool` reactively as data arrives — using idempotent upsert (`ON CONFLICT`) so a redelivered message never duplicates a row.
   3. An end-to-end integration test (CSV→MQ→Collector→Postgres) confirms rows land in the database, and with multiple concurrent collectors each message is persisted exactly once.
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 
 - [x] 03-01-PLAN.md — pkg/models shared slice: GpuMetric + FromProto (uuid→gpu_id) + InsertSQL; TDD unit-proves COLL-04 (wave 1)
 - [x] 03-02-PLAN.md — Streamer service: CSV infinite loop + RFC3339Nano restamp + 12-col parse + gRPC Produce; STREAM-01..05 (wave 1)
-- [ ] 03-03-PLAN.md — Collector service: long-lived bidi Consume + reconnect backoff + pgx.Batch ON CONFLICT upsert; COLL-01/02/03/05 (wave 2)
+- [x] 03-03-PLAN.md — Collector service: long-lived bidi Consume + reconnect backoff + pgx.Batch ON CONFLICT upsert; COLL-01/02/03/05 (wave 2)
 - [ ] 03-04-PLAN.md — QA-03 exactly-once E2E (bufconn + testcontainers) + smoke-03 + README; QA-03/DOC-01/QA-06 (wave 3)
 
 ### Phase 4: API Gateway + OpenAPI Docs
@@ -142,7 +142,7 @@ Plans:
 | 1. Foundation — Proto Contract + MQ Core | 3/3 | Complete   | 2026-06-27 |
 | 01.1 MQ At-Least-Once — Bidi Consume + Ack (INSERTED) | 6/6 | Complete    | 2026-06-28 |
 | 2. Storage Foundation — Schema + Connection Pool | 2/2 | Complete   | 2026-06-29 |
-| 3. Pipeline — Streamer + Collector + Integration | 2/4 | In Progress|  |
+| 3. Pipeline — Streamer + Collector + Integration | 3/4 | In Progress|  |
 | 4. API Gateway + OpenAPI Docs | 0/TBD | Not started | - |
 | 5. DevOps + Quality Gates | 0/TBD | Not started | - |
 | 6. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |

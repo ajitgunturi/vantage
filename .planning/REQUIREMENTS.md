@@ -37,11 +37,11 @@
 
 ### Collector (COLL)
 
-- [ ] **COLL-01**: Establishes a long-lived gRPC `Consume` stream to the MQ
-- [ ] **COLL-02**: Reconnects automatically if the stream drops
-- [ ] **COLL-03**: Persists received telemetry into PostgreSQL via `pgxpool` batched writes
+- [x] **COLL-01**: Establishes a long-lived gRPC `Consume` stream to the MQ
+- [x] **COLL-02**: Reconnects automatically if the stream drops
+- [x] **COLL-03**: Persists received telemetry into PostgreSQL via `pgxpool` batched writes
 - [x] **COLL-04**: Maps the wire payload to the DB model and persists reactively as data arrives
-- [ ] **COLL-05**: Performs idempotent upsert (`ON CONFLICT`) so a redelivered message does not duplicate a row
+- [x] **COLL-05**: Performs idempotent upsert (`ON CONFLICT`) so a redelivered message does not duplicate a row
 
 ### Storage / Schema (DB)
 
@@ -135,11 +135,11 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | STREAM-03 | Phase 3 | Complete |
 | STREAM-04 | Phase 3 | Complete |
 | STREAM-05 | Phase 3 | Complete |
-| COLL-01 | Phase 3 | Pending |
-| COLL-02 | Phase 3 | Pending |
-| COLL-03 | Phase 3 | Pending |
+| COLL-01 | Phase 3 | Complete |
+| COLL-02 | Phase 3 | Complete |
+| COLL-03 | Phase 3 | Complete |
 | COLL-04 | Phase 3 | Complete |
-| COLL-05 | Phase 3 | Pending |
+| COLL-05 | Phase 3 | Complete |
 | QA-03 | Phase 3 | Pending |
 | API-01 | Phase 4 | Pending |
 | API-02 | Phase 4 | Pending |
