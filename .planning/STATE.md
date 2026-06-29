@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 current_phase_name: api-gateway-openapi-docs
-status: planned
+status: executing
 stopped_at: Phase 04 planned — 3 plans across 3 waves (API-01..04); ready for /gsd-execute-phase 04
-last_updated: "2026-06-29T18:30:00Z"
+last_updated: "2026-06-29T12:57:09.229Z"
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 18
+  completed_plans: 16
   percent: 57
 ---
 
@@ -21,15 +21,15 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 03 — pipeline-streamer-collector-integration
+- **Current focus:** Phase 04 — api-gateway-openapi-docs
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 03 (pipeline-streamer-collector-integration) — EXECUTING
-- **Plan:** 4 of 4
-- **Status:** Phase complete — ready for verification
-- **Progress:** [██████████] 100%
+- **Phase:** 04 (api-gateway-openapi-docs) — EXECUTING
+- **Plan:** 2 of 3
+- **Status:** Ready to execute
+- **Progress:** [█████████░] 89%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,7 +70,7 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T12:06:47.038Z
+**Last session:** 2026-06-29T12:55:53.169Z
 **Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
 **Resume file:** None
 
@@ -96,6 +96,7 @@ progress:
 | Phase 03 P02 | 269s | 3 tasks | 5 files |
 | Phase 03-pipeline-streamer-collector-integration P03 | 27 | 2 tasks | 6 files |
 | Phase 03-pipeline-streamer-collector-integration P04 | 675 | 2 tasks | 3 files |
+| Phase 04 P01 | 356 | 2 tasks | 9 files |
 
 ## Decisions
 
@@ -122,3 +123,4 @@ progress:
 - [Phase ?]: grpcSrv.Stop() not GracefulStop in tests — GracefulStop blocks ~30s drain interval, Stop() immediately RSTs connections
 - [Phase ?]: ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING — Collector idempotency absorbs MQ at-least-once redeliveries without in-memory dedup state
 - [Phase ?]: E2E test: G=10 GPU UUIDs x M=20 metric names = 200 rows for restamp-collision robustness
+- [Phase 04]: Plan 04-01: gateway.Config.MaxRows = VANTAGE_GATEWAY_MAX_ROWS (default 1000) as safety ceiling; nil pool guard in ListGPUs ensures JSON Content-Type invariant
