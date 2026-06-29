@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 02
 current_phase_name: storage-foundation-schema-connection-pool
-status: complete
+status: planned
 stopped_at: Phase 02 executed + verified (8/8 must-haves; coverage 94.1%; smoke-02 green)
 last_updated: "2026-06-29T07:53:48.638Z"
 progress:
@@ -26,9 +26,9 @@ progress:
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 02 (storage-foundation-schema-connection-pool) — VERIFIED ✓
-- **Plan:** 2 of 2 complete
-- **Status:** Phase 02 verified (8/8 must-haves, coverage 94.1%, smoke-02 green) — ready to plan Phase 3
+- **Phase:** 03 (pipeline-streamer-collector-integration) — PLANNED ✓
+- **Plan:** 4 plans across 3 waves (checker-passed)
+- **Status:** Phase 02 verified (8/8); Phase 03 planned (4 plans, 3 waves) — ready to execute
 - **Progress:** [██████████] 100%
 
 ```
@@ -75,7 +75,7 @@ progress:
 **Resume file:** .planning/phases/02-storage-foundation-schema-connection-pool/02-02-PLAN.md
 
 - **Last action:** Plan 02-01 complete — pkg/db (New, Migrate, Config, FromEnv), migration SQL, and full integration suite (TestMigration, TestNew, TestUniqueConstraint, TestCompositeIndexUsed at 100k rows) all pass under -race.
-- **Next action:** Plan Phase 3 (`/gsd-plan-phase 3`) — Streamer + Collector + integration. Carry forward Phase-2 lock-ins: Collector uses INSERT...ON CONFLICT against uq_gpu_metrics_natural_key (not CopyFrom); Streamer restamps at RFC3339Nano.
+- **Next action:** Execute Phase 3 (`/gsd-execute-phase 3`). Wave 1 = 03-01 (pkg/models) ∥ 03-02 (Streamer); Wave 2 = 03-03 (Collector); Wave 3 = 03-04 (E2E + smoke-03). Integration/E2E need Rancher Docker env: `DOCKER_HOST=unix://$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`. Service logic lives in internal/streamer + internal/collector (thin cmd wrappers) so the ≥90% coverage gate reaches it.
 - **Notes:** Phase 3 locked decision: use INSERT...ON CONFLICT (not CopyFrom) for idempotent Collector upserts against uq_gpu_metrics_natural_key. Streamer must restamp at RFC3339Nano in Phase 3. Rancher Desktop docker socket: set DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true for integration tests.
 
 ---

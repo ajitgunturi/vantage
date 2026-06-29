@@ -84,7 +84,13 @@ Plans:
   2. The Collector holds a long-lived `Consume` stream, auto-reconnects when the stream drops, maps the wire payload to the DB model, and batch-inserts to PostgreSQL via `pgxpool` reactively as data arrives — using idempotent upsert (`ON CONFLICT`) so a redelivered message never duplicates a row.
   3. An end-to-end integration test (CSV→MQ→Collector→Postgres) confirms rows land in the database, and with multiple concurrent collectors each message is persisted exactly once.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — pkg/models shared slice: GpuMetric + FromProto (uuid→gpu_id) + InsertSQL; TDD unit-proves COLL-04 (wave 1)
+- [ ] 03-02-PLAN.md — Streamer service: CSV infinite loop + RFC3339Nano restamp + 12-col parse + gRPC Produce; STREAM-01..05 (wave 1)
+- [ ] 03-03-PLAN.md — Collector service: long-lived bidi Consume + reconnect backoff + pgx.Batch ON CONFLICT upsert; COLL-01/02/03/05 (wave 2)
+- [ ] 03-04-PLAN.md — QA-03 exactly-once E2E (bufconn + testcontainers) + smoke-03 + README; QA-03/DOC-01/QA-06 (wave 3)
 
 ### Phase 4: API Gateway + OpenAPI Docs
 
