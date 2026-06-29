@@ -16,8 +16,8 @@ CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume bidi stream: msgs ↓ 
 | Service | Entrypoint | Role | Status |
 |---|---|---|---|
 | **MQ** | `cmd/mq/` | Custom in-memory broker — gRPC data plane (`Produce`/`Consume`) + HTTP control plane (`/inspect`) | ✅ Phase 1 |
-| **Streamer** | `cmd/streamer/` | Loops the DCGM CSV forever, restamps `now`, publishes to MQ | ⏳ Phase 3 |
-| **Collector** | `cmd/collector/` | Consumes the MQ stream, batch-inserts to Postgres | ⏳ Phase 3 |
+| **Streamer** | `cmd/streamer/` | Loops the DCGM CSV forever, restamps `now`, publishes to MQ | ✅ Phase 3 |
+| **Collector** | `cmd/collector/` | Consumes the MQ stream, batch-inserts to Postgres | ✅ Phase 3 |
 | **API Gateway** | `cmd/gateway/` | Read API over Postgres; OpenAPI auto-generated via `swag` | ⏳ Phase 4 |
 | **PostgreSQL** | (Helm dep) | Time-series store; schema + connection pool in `pkg/db` | ✅ Phase 2 |
 
@@ -204,6 +204,110 @@ make smoke-02
 6. Runs `EXPLAIN` on a selective single-GPU 1-hour range query and asserts `Index Scan`
    (not `Seq Scan`) — proving the planner uses the composite index at representative scale
 
+## Phase 3 — Pipeline (Streamer + Collector)
+
+Phase 3 wires the full data path: a DCGM CSV is read by the Streamer, published to the MQ,
+consumed and batch-inserted by the Collector, and queryable in PostgreSQL. Services are
+independent microservices; only `pkg/` is shared.
+
+```
+CSV → Streamer → MQ(gRPC Produce) → MQ(gRPC Consume bidi) → Collector → PostgreSQL
+```
+
+### Prerequisites
+
+- A DCGM metrics CSV file in the repo root (`dcgm_metrics_*.csv`). Copy or symlink one
+  before running the Streamer or `make smoke-03`. The CSV is gitignored — never committed.
+- `make dev-up` to start the local Postgres dev stack.
+
+### Run the pipeline locally
+
+Start each service in its own terminal (or background):
+
+```sh
+# Terminal 1 — MQ broker (gRPC :50051, HTTP :8080)
+./bin/mq
+# or: go run ./cmd/mq
+
+# Terminal 2 — Collector (auto-migrates schema on startup)
+export VANTAGE_DB_DSN=postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
+export COLLECTOR_MQ_ADDR=:50051
+./bin/collector
+# or: go run ./cmd/collector
+
+# Terminal 3 — Streamer (loops the CSV forever; Ctrl-C to stop)
+export STREAMER_CSV_PATH=./dcgm_metrics_<date>.csv
+export STREAMER_MQ_ADDR=:50051
+./bin/streamer
+# or: STREAMER_CSV_PATH=... go run ./cmd/streamer
+```
+
+All three service binaries are built with `make build`.
+
+### Environment variables
+
+**Streamer**
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `STREAMER_MQ_ADDR` | `:50051` | gRPC address of the MQ server |
+| `STREAMER_CSV_PATH` | — | Path to the DCGM metrics CSV (required) |
+| `STREAMER_LOOP_DELAY_MS` | `1` | Inter-row sleep in ms; 0 disables |
+
+**Collector**
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `VANTAGE_DB_DSN` | — | PostgreSQL connection string (required) |
+| `COLLECTOR_MQ_ADDR` | `:50051` | gRPC address of the MQ server |
+| `COLLECTOR_BATCH_SIZE` | `50` | Rows to accumulate before a size-flush |
+| `COLLECTOR_FLUSH_MS` | `500` | Ticker interval in ms for time-flush |
+| `COLLECTOR_CREDIT` | `100` | Initial in-flight window (must be ≥ BATCH_SIZE) |
+
+### GPU identity convention (D-04)
+
+`gpu_id` in the database stores the GPU **UUID** (e.g. `GPU-5fd4f087-bfa9-2f3d-...`),
+not the ordinal index (`"0"`, `"1"`, …) from the CSV's `gpu_id` column. `models.FromProto`
+maps the proto `uuid` field to `db.gpu_id`. The ordinal is kept in the proto for debugging
+but is never written to Postgres.
+
+### Inspect rows in PostgreSQL
+
+```sh
+# Most-recent 10 readings via compose (no host psql required)
+docker compose exec -T postgres psql -U vantage -d vantage \
+  -c 'SELECT gpu_id, metric_name, timestamp, value FROM gpu_metrics ORDER BY timestamp DESC LIMIT 10;'
+
+# Row count and GPU diversity
+docker compose exec -T postgres psql -U vantage -d vantage \
+  -c 'SELECT count(*), count(distinct gpu_id) FROM gpu_metrics;'
+```
+
+### Exactly-once delivery (the key property)
+
+With multiple Collector instances, each telemetry reading is persisted **exactly once**
+even under at-least-once MQ redelivery. The Collector's `ON CONFLICT (gpu_id, metric_name,
+timestamp) DO NOTHING` SQL clause is the enforcement point. The E2E test (QA-03) proves this
+automatically: see `test/e2e/pipeline_test.go`.
+
+### Verify Phase 3
+
+```sh
+make smoke-03
+```
+
+`make smoke-03` runs `scripts/smoke/phase03-pipeline.sh`, which:
+
+1. Starts the dev Postgres stack (`make dev-up`) if not already running
+2. Finds `dcgm_metrics_*.csv` in the repo root (fails cleanly if absent)
+3. Builds and starts `bin/mq`, `bin/collector`, `bin/streamer` in the background
+4. Waits 5 seconds for telemetry to flow
+5. Asserts `count(*) FROM gpu_metrics > 0` (rows landed)
+6. Asserts `count(*) == count(DISTINCT gpu_id, metric_name, timestamp)` (zero duplicates)
+7. Asserts no ordinal values (`0`, `1`, …) in `gpu_id` (UUID mapping verified, D-04)
+8. Prints row count, distinct row count, and distinct GPU count
+9. Leaves Postgres running for manual inspection; kills only the three pipeline processes
+
 ## Testing
 
 ### Automated (unit + concurrency + coverage)
@@ -247,7 +351,7 @@ leases, proving redelivery over the wire.
 |---|---|---|
 | **1 — Foundation** ✅ | proto contract + custom in-memory MQ (gRPC + HTTP inspect) | `make test`, `make coverage`, `make smoke-01` |
 | **2 — Storage** ✅ | Postgres time-series schema + `pgxpool` in `pkg/db` | `make dev-up`, `go run ./cmd/migrate`, `make smoke-02` |
-| 3 — Pipeline | Streamer + Collector (CSV → MQ → Postgres) | _(coming)_ `make smoke-03` |
+| **3 — Pipeline** ✅ | Streamer + Collector (CSV → MQ → Postgres); exactly-once E2E test | `make build`, `make test`, `make coverage`, `make smoke-03` |
 | 4 — API Gateway | REST read API + auto-generated OpenAPI | _(coming)_ `make smoke-04` |
 | 5 — DevOps | Dockerfiles + Helm; runs on kind | _(coming)_ `make docker`, `make kind-up` |
 

@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 02
-current_phase_name: storage-foundation-schema-connection-pool
-status: planned
-stopped_at: Phase 02 executed + verified (8/8 must-haves; coverage 94.1%; smoke-02 green)
-last_updated: "2026-06-29T07:53:48.638Z"
+current_phase: 03
+current_phase_name: pipeline-streamer-collector-integration
+status: verified
+stopped_at: Phase 03 verification complete — 17/17 must-haves VERIFIED
+last_updated: "2026-06-29T17:45:00Z"
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 43
+  completed_phases: 4
+  total_plans: 15
+  completed_plans: 15
+  percent: 57
 ---
 
 # Project State: vantage
@@ -21,14 +21,14 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 02 — storage-foundation-schema-connection-pool
+- **Current focus:** Phase 03 — pipeline-streamer-collector-integration
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 03 (pipeline-streamer-collector-integration) — PLANNED ✓
-- **Plan:** 4 plans across 3 waves (checker-passed)
-- **Status:** Phase 02 verified (8/8); Phase 03 planned (4 plans, 3 waves) — ready to execute
+- **Phase:** 03 (pipeline-streamer-collector-integration) — EXECUTING
+- **Plan:** 4 of 4
+- **Status:** Phase complete — ready for verification
 - **Progress:** [██████████] 100%
 
 ```
@@ -70,9 +70,9 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T07:53:10.638Z
-**Stopped at:** Completed 02-01-PLAN.md
-**Resume file:** .planning/phases/02-storage-foundation-schema-connection-pool/02-02-PLAN.md
+**Last session:** 2026-06-29T12:06:47.038Z
+**Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
+**Resume file:** None
 
 - **Last action:** Plan 02-01 complete — pkg/db (New, Migrate, Config, FromEnv), migration SQL, and full integration suite (TestMigration, TestNew, TestUniqueConstraint, TestCompositeIndexUsed at 100k rows) all pass under -race.
 - **Next action:** Execute Phase 3 (`/gsd-execute-phase 3`). Wave 1 = 03-01 (pkg/models) ∥ 03-02 (Streamer); Wave 2 = 03-03 (Collector); Wave 3 = 03-04 (E2E + smoke-03). Integration/E2E need Rancher Docker env: `DOCKER_HOST=unix://$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`. Service logic lives in internal/streamer + internal/collector (thin cmd wrappers) so the ≥90% coverage gate reaches it.
@@ -92,6 +92,10 @@ progress:
 | Phase 01.1 P02 | 4m | 2 tasks | 5 files |
 | Phase 02 P01 | 13min | 3 tasks | 7 files |
 | Phase 02 P02 | 4m | 3 tasks | 5 files |
+| Phase 03 P01 | 116 | 2 tasks | 2 files |
+| Phase 03 P02 | 269s | 3 tasks | 5 files |
+| Phase 03-pipeline-streamer-collector-integration P03 | 27 | 2 tasks | 6 files |
+| Phase 03-pipeline-streamer-collector-integration P04 | 675 | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -109,3 +113,12 @@ progress:
 - [Phase 02]: uq_gpu_metrics_natural_key (gpu_id, metric_name, timestamp) — Phase 3 must use INSERT...ON CONFLICT, NOT CopyFrom (CopyFrom cannot express ON CONFLICT) (plan 02-01)
 - [Phase 02]: RFC3339Nano Streamer restamp locked — TIMESTAMPTZ microsecond precision; second-granularity restamps collapse same-second readings on natural key (plan 02-01)
 - [Phase ?]: cmd/migrate is a standalone binary — reusable by Phase-5 k8s init-job without shell dependency (plan 02-02)
+- [Phase ?]: GpuMetric.GpuID sourced from msg.GetUuid() — COLL-04/D-04 single enforcement point
+- [Phase ?]: InsertSQL positional args - in DDL column order — shared Collector contract
+- [Phase ?]: 03-02: RFC3339Nano restamp locked in for Streamer — second-granularity collapses same readings
+- [Phase ?]: 03-02: Stream exported seam once=true enables deterministic unit and bufconn tests without infinite production loop
+- [Phase ?]: Two-goroutine bidi split for gRPC Consume stream — recv goroutine sole Recv caller, batch goroutine sole Send caller
+- [Phase ?]: ctx.Err() != nil as sole reconnect exit discriminant in Run — gRPC maps server-side codes.Canceled to stdlib context.Canceled making errors.Is unreliable
+- [Phase ?]: grpcSrv.Stop() not GracefulStop in tests — GracefulStop blocks ~30s drain interval, Stop() immediately RSTs connections
+- [Phase ?]: ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING — Collector idempotency absorbs MQ at-least-once redeliveries without in-memory dedup state
+- [Phase ?]: E2E test: G=10 GPU UUIDs x M=20 metric names = 200 rows for restamp-collision robustness

@@ -29,19 +29,19 @@
 
 ### Streamer (STREAM)
 
-- [ ] **STREAM-01**: Continuously loops the DCGM CSV file line-by-line, indefinitely
-- [ ] **STREAM-02**: Restamps each record with the current execution timestamp before publishing
-- [ ] **STREAM-03**: Publishes records to the MQ via a generated gRPC `Produce` client stub
-- [ ] **STREAM-04**: Parses the DCGM 12-column format; malformed lines are skipped and logged cleanly
-- [ ] **STREAM-05**: Supports running up to 10 concurrent instances
+- [x] **STREAM-01**: Continuously loops the DCGM CSV file line-by-line, indefinitely
+- [x] **STREAM-02**: Restamps each record with the current execution timestamp before publishing
+- [x] **STREAM-03**: Publishes records to the MQ via a generated gRPC `Produce` client stub
+- [x] **STREAM-04**: Parses the DCGM 12-column format; malformed lines are skipped and logged cleanly
+- [x] **STREAM-05**: Supports running up to 10 concurrent instances
 
 ### Collector (COLL)
 
-- [ ] **COLL-01**: Establishes a long-lived gRPC `Consume` stream to the MQ
-- [ ] **COLL-02**: Reconnects automatically if the stream drops
-- [ ] **COLL-03**: Persists received telemetry into PostgreSQL via `pgxpool` batched writes
-- [ ] **COLL-04**: Maps the wire payload to the DB model and persists reactively as data arrives
-- [ ] **COLL-05**: Performs idempotent upsert (`ON CONFLICT`) so a redelivered message does not duplicate a row
+- [x] **COLL-01**: Establishes a long-lived gRPC `Consume` stream to the MQ
+- [x] **COLL-02**: Reconnects automatically if the stream drops
+- [x] **COLL-03**: Persists received telemetry into PostgreSQL via `pgxpool` batched writes
+- [x] **COLL-04**: Maps the wire payload to the DB model and persists reactively as data arrives
+- [x] **COLL-05**: Performs idempotent upsert (`ON CONFLICT`) so a redelivered message does not duplicate a row
 
 ### Storage / Schema (DB)
 
@@ -69,14 +69,14 @@
 
 - [ ] **QA-01**: Unit tests across all services
 - [x] **QA-02**: Race-detector tests for MQ concurrency proving N produced = N consumed across K consumers
-- [ ] **QA-03**: Integration tests (end-to-end CSV→MQ→Collector→Postgres; gateway against a seeded DB)
+- [x] **QA-03**: Integration tests (end-to-end CSV→MQ→Collector→Postgres; gateway against a seeded DB)
 - [ ] **QA-04**: ≥90% line coverage enforced via the Makefile coverage gate
 - [ ] **QA-05**: Crash-recovery test — after a simulated broker restart in WAL mode, no un-consumed message is lost (replay verified)
 
 ### Documentation & Manual Verification (DOC / QA) — cross-cutting cadence
 
-- [ ] **DOC-01**: Living `README.md` quickstart, grown **incrementally** as each phase completes — a reader can clone → run → see each shipped component work. Every phase plan includes a README-update task.
-- [ ] **QA-06**: Runnable manual smoke suite the user executes to verify each phase's deliverables — `scripts/smoke/phaseNN-*.sh` driven by `make smoke-NN` (one phase) and `make smoke` (all phases shipped). Distinct from automated integration tests (QA-03) and the coverage gate (QA-04).
+- [x] **DOC-01**: Living `README.md` quickstart, grown **incrementally** as each phase completes — a reader can clone → run → see each shipped component work. Every phase plan includes a README-update task.
+- [x] **QA-06**: Runnable manual smoke suite the user executes to verify each phase's deliverables — `scripts/smoke/phaseNN-*.sh` driven by `make smoke-NN` (one phase) and `make smoke` (all phases shipped). Distinct from automated integration tests (QA-03) and the coverage gate (QA-04).
 - [ ] **OPS-06**: `docker-compose.yml` dev stack + `make dev-up`/`make dev-down` provides local dependencies (Postgres from Phase 2 on) for manual smoke testing, independent of the Phase-5 kind/Helm stack.
 
 > DOC-01, QA-06, OPS-06 are **cross-cutting** — the harness is established in Phase 2 (first phase needing Postgres/Docker, with a thin Phase-1 MQ backfill) and extended by every subsequent phase.
@@ -130,17 +130,17 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | DB-02 | Phase 2 | Complete |
 | DB-03 | Phase 2 | Complete |
 | DB-04 | Phase 2 | Complete |
-| STREAM-01 | Phase 3 | Pending |
-| STREAM-02 | Phase 3 | Pending |
-| STREAM-03 | Phase 3 | Pending |
-| STREAM-04 | Phase 3 | Pending |
-| STREAM-05 | Phase 3 | Pending |
-| COLL-01 | Phase 3 | Pending |
-| COLL-02 | Phase 3 | Pending |
-| COLL-03 | Phase 3 | Pending |
-| COLL-04 | Phase 3 | Pending |
-| COLL-05 | Phase 3 | Pending |
-| QA-03 | Phase 3 | Pending |
+| STREAM-01 | Phase 3 | Complete |
+| STREAM-02 | Phase 3 | Complete |
+| STREAM-03 | Phase 3 | Complete |
+| STREAM-04 | Phase 3 | Complete |
+| STREAM-05 | Phase 3 | Complete |
+| COLL-01 | Phase 3 | Complete |
+| COLL-02 | Phase 3 | Complete |
+| COLL-03 | Phase 3 | Complete |
+| COLL-04 | Phase 3 | Complete |
+| COLL-05 | Phase 3 | Complete |
+| QA-03 | Phase 3 | Complete |
 | API-01 | Phase 4 | Pending |
 | API-02 | Phase 4 | Pending |
 | API-03 | Phase 4 | Pending |
@@ -155,8 +155,8 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | DUR-01 | Phase 6 | Pending |
 | DUR-02 | Phase 6 | Pending |
 | QA-05 | Phase 6 | Pending |
-| DOC-01 | All phases (harness: Phase 2) | Pending |
-| QA-06 | All phases (harness: Phase 2) | Pending |
+| DOC-01 | All phases (harness: Phase 2) | Complete |
+| QA-06 | All phases (harness: Phase 2) | Complete |
 | OPS-06 | Phase 2 | Pending |
 
 **Coverage:**
