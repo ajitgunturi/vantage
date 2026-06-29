@@ -365,11 +365,13 @@ func TestGetTelemetry_KnownGPUEmptyWindow(t *testing.T) {
 		"known GPU with empty window must return 200 (not 404)")
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 
-	rows := decodeMetrics(t, w)
+	// Capture body before decoding — json.Decoder advances the buffer.
+	body := w.Body.String()
+	var rows []gateway.GpuMetricResponse
+	require.NoError(t, json.Unmarshal([]byte(body), &rows),
+		"empty-window body must be valid JSON")
 	assert.Len(t, rows, 0, "empty window must return [] (not null)")
-
-	// Verify the raw body is "[]" not "null".
-	assert.JSONEq(t, "[]", w.Body.String())
+	assert.JSONEq(t, "[]", body, "empty-window body must be exactly []")
 }
 
 // TestGetTelemetry_BadTime asserts OQ-4: a malformed start_time parameter

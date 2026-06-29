@@ -13,10 +13,9 @@ import (
 // NewRouter constructs the chi router for the API Gateway.
 //
 // Routes registered:
-//   - GET /api/v1/gpus              → ListGPUs (API-01)
-//   - GET /swagger/*                → Swagger UI (stub — spec generated in Plan 03)
-//
-// The telemetry sub-route (/api/v1/gpus/{id}/telemetry) is added in Plan 02.
+//   - GET /api/v1/gpus                   → ListGPUs (API-01)
+//   - GET /api/v1/gpus/{id}/telemetry    → GetTelemetry (API-02, API-03)
+//   - GET /swagger/*                     → Swagger UI (spec generated in Plan 03)
 //
 // Note: the side-effect import of pkg/docs (which registers the generated
 // swagger spec on init()) lives only in cmd/gateway/main.go — NOT here.
@@ -29,7 +28,7 @@ func NewRouter(pool *pgxpool.Pool, cfg Config) http.Handler {
 
 	r.Route("/api/v1/gpus", func(r chi.Router) {
 		r.Get("/", ListGPUs(pool))
-		// Plan 02 adds: r.Get("/{id}/telemetry", GetTelemetry(pool, cfg))
+		r.Get("/{id}/telemetry", GetTelemetry(pool, cfg.MaxRows)) // API-02, API-03 (Plan 02)
 	})
 
 	// Swagger UI — served at /swagger/* after pkg/docs is generated (Plan 03).
