@@ -29,11 +29,11 @@
 
 ### Streamer (STREAM)
 
-- [ ] **STREAM-01**: Continuously loops the DCGM CSV file line-by-line, indefinitely
-- [ ] **STREAM-02**: Restamps each record with the current execution timestamp before publishing
-- [ ] **STREAM-03**: Publishes records to the MQ via a generated gRPC `Produce` client stub
-- [ ] **STREAM-04**: Parses the DCGM 12-column format; malformed lines are skipped and logged cleanly
-- [ ] **STREAM-05**: Supports running up to 10 concurrent instances
+- [x] **STREAM-01**: Continuously loops the DCGM CSV file line-by-line, indefinitely
+- [x] **STREAM-02**: Restamps each record with the current execution timestamp before publishing
+- [x] **STREAM-03**: Publishes records to the MQ via a generated gRPC `Produce` client stub
+- [x] **STREAM-04**: Parses the DCGM 12-column format; malformed lines are skipped and logged cleanly
+- [x] **STREAM-05**: Supports running up to 10 concurrent instances
 
 ### Collector (COLL)
 
@@ -130,11 +130,11 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | DB-02 | Phase 2 | Complete |
 | DB-03 | Phase 2 | Complete |
 | DB-04 | Phase 2 | Complete |
-| STREAM-01 | Phase 3 | Pending |
-| STREAM-02 | Phase 3 | Pending |
-| STREAM-03 | Phase 3 | Pending |
-| STREAM-04 | Phase 3 | Pending |
-| STREAM-05 | Phase 3 | Pending |
+| STREAM-01 | Phase 3 | Complete |
+| STREAM-02 | Phase 3 | Complete |
+| STREAM-03 | Phase 3 | Complete |
+| STREAM-04 | Phase 3 | Complete |
+| STREAM-05 | Phase 3 | Complete |
 | COLL-01 | Phase 3 | Pending |
 | COLL-02 | Phase 3 | Pending |
 | COLL-03 | Phase 3 | Pending |

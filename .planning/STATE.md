@@ -6,12 +6,12 @@ current_phase: 03
 current_phase_name: pipeline-streamer-collector-integration
 status: executing
 stopped_at: Phase 02 executed + verified (8/8 must-haves; coverage 94.1%; smoke-02 green)
-last_updated: "2026-06-29T11:00:33.816Z"
+last_updated: "2026-06-29T11:10:28.861Z"
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 43
 ---
 
@@ -27,9 +27,9 @@ progress:
 
 - **Milestone:** v1 (MVP)
 - **Phase:** 03 (pipeline-streamer-collector-integration) — EXECUTING
-- **Plan:** 2 of 4
+- **Plan:** 3 of 4
 - **Status:** Ready to execute
-- **Progress:** [████████░░] 80%
+- **Progress:** [█████████░] 87%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,7 +70,7 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T10:59:57.546Z
+**Last session:** 2026-06-29T11:09:49.522Z
 **Stopped at:** Completed 02-01-PLAN.md
 **Resume file:** .planning/phases/02-storage-foundation-schema-connection-pool/02-02-PLAN.md
 
@@ -93,6 +93,7 @@ progress:
 | Phase 02 P01 | 13min | 3 tasks | 7 files |
 | Phase 02 P02 | 4m | 3 tasks | 5 files |
 | Phase 03 P01 | 116 | 2 tasks | 2 files |
+| Phase 03 P02 | 269s | 3 tasks | 5 files |
 
 ## Decisions
 
@@ -112,3 +113,5 @@ progress:
 - [Phase ?]: cmd/migrate is a standalone binary — reusable by Phase-5 k8s init-job without shell dependency (plan 02-02)
 - [Phase ?]: GpuMetric.GpuID sourced from msg.GetUuid() — COLL-04/D-04 single enforcement point
 - [Phase ?]: InsertSQL positional args - in DDL column order — shared Collector contract
+- [Phase ?]: 03-02: RFC3339Nano restamp locked in for Streamer — second-granularity collapses same readings
+- [Phase ?]: 03-02: Stream exported seam once=true enables deterministic unit and bufconn tests without infinite production loop
