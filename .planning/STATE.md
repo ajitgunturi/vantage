@@ -4,15 +4,15 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03
 current_phase_name: pipeline-streamer-collector-integration
-status: executing
+status: verifying
 stopped_at: Completed 03-03-PLAN.md (Collector microservice)
-last_updated: "2026-06-29T11:52:41.332Z"
+last_updated: "2026-06-29T12:06:54.195Z"
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 14
-  percent: 43
+  completed_plans: 15
+  percent: 57
 ---
 
 # Project State: vantage
@@ -28,8 +28,8 @@ progress:
 - **Milestone:** v1 (MVP)
 - **Phase:** 03 (pipeline-streamer-collector-integration) — EXECUTING
 - **Plan:** 4 of 4
-- **Status:** Ready to execute
-- **Progress:** [█████████░] 93%
+- **Status:** Phase complete — ready for verification
+- **Progress:** [██████████] 100%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,7 +70,7 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T11:52:41.327Z
+**Last session:** 2026-06-29T12:06:47.038Z
 **Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
 **Resume file:** None
 
@@ -95,6 +95,7 @@ progress:
 | Phase 03 P01 | 116 | 2 tasks | 2 files |
 | Phase 03 P02 | 269s | 3 tasks | 5 files |
 | Phase 03-pipeline-streamer-collector-integration P03 | 27 | 2 tasks | 6 files |
+| Phase 03-pipeline-streamer-collector-integration P04 | 675 | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -120,3 +121,4 @@ progress:
 - [Phase ?]: ctx.Err() != nil as sole reconnect exit discriminant in Run — gRPC maps server-side codes.Canceled to stdlib context.Canceled making errors.Is unreliable
 - [Phase ?]: grpcSrv.Stop() not GracefulStop in tests — GracefulStop blocks ~30s drain interval, Stop() immediately RSTs connections
 - [Phase ?]: ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING — Collector idempotency absorbs MQ at-least-once redeliveries without in-memory dedup state
+- [Phase ?]: E2E test: G=10 GPU UUIDs x M=20 metric names = 200 rows for restamp-collision robustness
