@@ -1,0 +1,44 @@
+# Binaries
+bin/
+*.exe
+*.out
+# Root-level service binaries produced by go build ./cmd/... without -o flag
+/mq
+/streamer
+/collector
+/gateway
+
+# Go workspace sum (keep go.work, drop the sum)
+go.work.sum
+
+# Local broker data / WAL segments
+data/
+*.wal
+*.seg
+*.segidx
+
+# Test / coverage artifacts
+coverage.out
+coverage.html
+*.test
+
+# OpenAPI generated bundles are committed; swag's temp files are not
+**/docs/swagger.yaml.tmp
+
+# Tooling installed locally
+.tools/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Input artifacts (kept locally, not in repo history)
+*.pdf
+dcgm_metrics_*.csv
+
+# Personal/machine-local Claude Code config (shared config goes in settings.json)
+.claude/settings.local.json
+
+# GSD research tool cache (local only)
+.planning/research/.cache/

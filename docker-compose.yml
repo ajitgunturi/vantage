@@ -1,0 +1,32 @@
+# vantage — local dev stack
+#
+# Starts a Postgres 17 instance for development and smoke testing.
+# These credentials (vantage/vantage) are LOCAL DEV defaults only and
+# are committed intentionally — they are not production secrets.
+# Production DSNs are always supplied via the VANTAGE_DB_DSN environment
+# variable (never from this file).
+#
+# Usage:
+#   make dev-up    # start (waits for healthcheck)
+#   make dev-down  # stop
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB:       vantage
+      POSTGRES_USER:     vantage
+      POSTGRES_PASSWORD: vantage   # LOCAL DEV ONLY — see note above
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vantage -d vantage"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+volumes:
+  pgdata:

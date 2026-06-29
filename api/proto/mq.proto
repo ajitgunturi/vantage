@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package mq.v1;
+
+option go_package = "github.com/ajitg/vantage/pkg/pb";
+
+// TelemetryMessage carries a single DCGM GPU metric reading.
+// Fields map to DCGM CSV columns: timestamp, metric_name, gpu_id, device,
+// uuid, modelName (→ model_name), Hostname (→ hostname), container, pod,
+// namespace, value, labels_raw.
+//
+// WARNING: Field numbers are stable once deployed. Never renumber fields.
+// Adding new fields is backwards compatible; removing or renumbering is not.
+message TelemetryMessage {
+    string timestamp   = 1;  // ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339)
+    string metric_name = 2;  // e.g., "DCGM_FI_DEV_GPU_UTIL"
+    string gpu_id      = 3;  // e.g., "0"
+    string device      = 4;  // e.g., "nvidia0"
+    string uuid        = 5;  // GPU UUID
+    string model_name  = 6;  // e.g., "NVIDIA H100 80GB HBM3"
+    string hostname    = 7;
+    string container   = 8;
+    string pod         = 9;
+    string namespace   = 10;
+    double value       = 11; // metric value (GPU utilization %, memory bytes, etc.)
+    string labels_raw  = 12; // raw Prometheus label string
+}
+
+message ProduceRequest {
+    TelemetryMessage message = 1;
+}
+
+message ProduceResponse {
+    bool accepted = 1; // true = enqueued (or drop-oldest fired); false only on validation error
+}
+
+// ConsumeRequest is intentionally minimal. consumer_id is optional; used only
+// for server-side logging to correlate which Collector instance holds a stream.
+message ConsumeRequest {
+    string consumer_id = 1;
+}
+
+service MQService {
+    // Produce enqueues a single telemetry message.
+    // Never blocks. Drop-oldest fires silently when the buffer is full.
+    rpc Produce(ProduceRequest) returns (ProduceResponse);
+
+    // Consume opens a persistent server-side stream.
+    // Exactly one consumer receives each message (work-queue semantics).
+    // The stream remains open until the client disconnects or the server shuts down.
+    rpc Consume(ConsumeRequest) returns (stream TelemetryMessage);
+}

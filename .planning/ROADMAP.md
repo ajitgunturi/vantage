@@ -1,0 +1,127 @@
+# Roadmap: vantage — Elastic GPU Telemetry Pipeline
+
+**Created:** 2026-06-27
+**Milestone:** v1 (MVP)
+**Granularity:** standard
+**Core Value:** End-to-end telemetry flow (CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway) works reliably under concurrency, with no message loss or duplication.
+
+## Phases
+
+- [x] **Phase 1: Foundation — Proto Contract + MQ Core** - Race-safe in-memory MQ over gRPC + HTTP, exactly-once-to-one-consumer delivery (completed 2026-06-27)
+- [ ] **Phase 2: Storage Foundation — Schema + Connection Pool** - Time-series PostgreSQL schema with an EXPLAIN-verified composite index, shared via pgxpool
+- [ ] **Phase 3: Pipeline — Streamer + Collector + Integration** - Live CSV telemetry flowing end-to-end into PostgreSQL under concurrency
+- [ ] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry
+- [ ] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar
+- [ ] **Phase 6: MQ Durability — Opt-in WAL Persistence** - Crash-durable broker mode behind the Store interface; at-least-once via replay
+
+## Phase Details
+
+### Phase 1: Foundation — Proto Contract + MQ Core
+
+**Goal**: A race-safe, in-memory custom message queue is reachable over gRPC (data plane) and HTTP (control plane), delivering each enqueued message to exactly one consumer under concurrency. Storage sits behind a `Store` interface (in-memory default) so a durable backend can be added later (Phase 6) without touching consumers.
+**Mode:** mvp
+**Depends on**: Nothing (first phase; the proto contract is the import root)
+**Requirements**: MQ-01, MQ-02, MQ-03, MQ-04, MQ-05, MQ-06, MQ-07, MQ-08, QA-02
+**Success Criteria** (what must be TRUE):
+
+  1. A producer client can call `Produce` (unary gRPC) and a consumer client can call `Consume` (server-stream) against the running MQ, exchanging telemetry payloads defined by `api/proto/mq.proto` and its generated stubs.
+  2. With K concurrent consumers and N produced messages, exactly N messages are consumed in total — no duplication, no loss (delivery-count test: N produced = N consumed across K consumers).
+  3. `go test -race -count=50` runs clean (no data races, no deadlocks from holding a lock across a channel send) and the MQ package meets the ≥90% line-coverage gate.
+  4. `GET /api/v1/queue/inspect` returns a JSON summary of queue status; the bounded buffer enforces a defined drop policy when full, and a consumer disconnect is handled gracefully with no leaked goroutines.
+
+**Plans**: 3/3 plans complete
+
+- [x] 01-01-PLAN.md
+- [x] 01-02-PLAN.md
+- [x] 01-03-PLAN.md
+
+### Phase 2: Storage Foundation — Schema + Connection Pool
+
+**Goal**: PostgreSQL holds GPU telemetry in a time-series schema whose composite index is provably used, accessed through a shared `pgxpool` that both Collector and Gateway reuse.
+**Mode:** mvp
+**Depends on**: Nothing (independent foundation; parallelizable with Phase 1)
+**Requirements**: DB-01, DB-02, DB-03, DB-04
+**Success Criteria** (what must be TRUE):
+
+  1. A migration creates a relational time-series table with `gpu_id`, `timestamp TIMESTAMPTZ`, and numeric metric columns.
+  2. `EXPLAIN` on a `(gpu_id, timestamp DESC)` range query confirms the composite index is used (index scan, not seq scan) at representative scale.
+  3. `pkg/db` initializes a `pgxpool` connection pool that both the Collector and the API Gateway can import and reuse.
+  4. The schema carries a natural-key unique constraint enabling idempotent inserts, so at-least-once redelivery (once durability is enabled in Phase 6) cannot create duplicate rows.
+
+**Plans**: TBD
+
+### Phase 3: Pipeline — Streamer + Collector + Integration
+
+**Goal**: Live CSV telemetry flows end-to-end from the Streamer, through the MQ, into PostgreSQL via the Collector — correctly under concurrency.
+**Mode:** mvp
+**Depends on**: Phase 1 (MQ contract + running broker), Phase 2 (schema + pgxpool). Streamer and Collector are independent and built in parallel.
+**Requirements**: STREAM-01, STREAM-02, STREAM-03, STREAM-04, STREAM-05, COLL-01, COLL-02, COLL-03, COLL-04, COLL-05, QA-03
+**Success Criteria** (what must be TRUE):
+
+  1. The Streamer loops the DCGM CSV indefinitely, restamps each record with the current UTC timestamp, parses the 12-column format (malformed lines skipped and logged cleanly), and publishes via the generated gRPC `Produce` client; up to 10 instances run concurrently.
+  2. The Collector holds a long-lived `Consume` stream, auto-reconnects when the stream drops, maps the wire payload to the DB model, and batch-inserts to PostgreSQL via `pgxpool` reactively as data arrives — using idempotent upsert (`ON CONFLICT`) so a redelivered message never duplicates a row.
+  3. An end-to-end integration test (CSV→MQ→Collector→Postgres) confirms rows land in the database, and with multiple concurrent collectors each message is persisted exactly once.
+
+**Plans**: TBD
+
+### Phase 4: API Gateway + OpenAPI Docs
+
+**Goal**: Clients can query stored GPU telemetry over a documented REST API backed directly by PostgreSQL.
+**Mode:** mvp
+**Depends on**: Phase 2 (schema + pgxpool). Off the critical path — parallelizable with Phase 3 once the schema exists; tested against a seeded DB.
+**Requirements**: API-01, API-02, API-03, API-04
+**Success Criteria** (what must be TRUE):
+
+  1. `GET /api/v1/gpus` returns the unique list of GPU IDs from PostgreSQL.
+  2. `GET /api/v1/gpus/{id}/telemetry` returns that GPU's telemetry ordered by time, and the `?start_time=&end_time=` variant filters by time window (using the composite index).
+  3. `swag init` regenerates a valid OpenAPI spec entirely from code annotations (no hand-written spec) and serves it via Swagger UI.
+
+**Plans**: TBD
+
+### Phase 5: DevOps + Quality Gates
+
+**Goal**: Every microservice builds and deploys independently to a single Kubernetes cluster via Helm, and the repository enforces its quality bar end-to-end.
+**Mode:** mvp
+**Depends on**: Phase 3 (pipeline must exist to package and soak-test). Parallelizable with Phase 4.
+**Requirements**: OPS-01, OPS-02, OPS-03, OPS-04, OPS-05, QA-01, QA-04
+**Success Criteria** (what must be TRUE):
+
+  1. Each service (mq, streamer, collector, gateway) has a multi-stage Dockerfile and a Helm sub-chart (plus a PostgreSQL dependency); `helm install` brings all pods to Running, and each service builds and deploys independently.
+  2. The MQ Deployment runs as a single replica (`replicas: 1`) with `strategy: Recreate` — no rolling-update split-brain of the in-memory broker.
+  3. The Makefile exposes `proto`, `build`, `test`, `coverage`, and `swagger` targets; unit tests span all services and the coverage gate enforces ≥90% line coverage.
+
+**Plans**: TBD
+
+### Phase 6: MQ Durability — Opt-in WAL Persistence
+
+**Goal**: With durability enabled via config, the MQ persists produced messages to a write-ahead log and replays them on restart, so a broker crash loses no un-consumed message — while the in-memory default stays byte-for-byte unchanged.
+**Mode:** mvp
+**Depends on**: Phase 1 (the `Store` interface). Safe at-least-once relies on Phase 2 (unique constraint) + Phase 3 (idempotent collector) already being in place.
+**Requirements**: DUR-01, DUR-02, QA-05
+**Success Criteria** (what must be TRUE):
+
+  1. A config flag selects the WAL-backed `Store`; when off, behavior is the in-memory default. The WAL appends each `Produce` and fsyncs once per batch (group commit), preserving throughput rather than fsync-per-message.
+  2. On restart in WAL mode, all persisted messages are replayed (at-least-once); combined with the idempotent collector, the resulting PostgreSQL state is correct with no duplicate rows.
+  3. A crash-recovery test simulates a broker restart mid-stream and verifies no un-consumed message is lost.
+
+**Plans**: TBD
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Foundation — Proto Contract + MQ Core | 3/3 | Complete   | 2026-06-27 |
+| 2. Storage Foundation — Schema + Connection Pool | 0/TBD | Not started | - |
+| 3. Pipeline — Streamer + Collector + Integration | 0/TBD | Not started | - |
+| 4. API Gateway + OpenAPI Docs | 0/TBD | Not started | - |
+| 5. DevOps + Quality Gates | 0/TBD | Not started | - |
+| 6. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
+
+## Coverage
+
+- v1 requirements: 38 total
+- Mapped to phases: 38
+- Orphaned: 0 ✓
+
+---
+*Roadmap created: 2026-06-27*
