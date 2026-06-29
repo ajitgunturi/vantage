@@ -6,12 +6,12 @@ current_phase: 04
 current_phase_name: api-gateway-openapi-docs
 status: executing
 stopped_at: Phase 04 planned — 3 plans across 3 waves (API-01..04); ready for /gsd-execute-phase 04
-last_updated: "2026-06-29T12:57:09.229Z"
+last_updated: "2026-06-29T13:15:47.139Z"
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
   percent: 57
 ---
 
@@ -27,9 +27,9 @@ progress:
 
 - **Milestone:** v1 (MVP)
 - **Phase:** 04 (api-gateway-openapi-docs) — EXECUTING
-- **Plan:** 2 of 3
+- **Plan:** 3 of 3
 - **Status:** Ready to execute
-- **Progress:** [█████████░] 89%
+- **Progress:** [█████████░] 94%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,7 +70,7 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T12:55:53.169Z
+**Last session:** 2026-06-29T13:15:37.901Z
 **Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
 **Resume file:** None
 
@@ -97,6 +97,7 @@ progress:
 | Phase 03-pipeline-streamer-collector-integration P03 | 27 | 2 tasks | 6 files |
 | Phase 03-pipeline-streamer-collector-integration P04 | 675 | 2 tasks | 3 files |
 | Phase 04 P01 | 356 | 2 tasks | 9 files |
+| Phase 04 P02 | 558 | 2 tasks | 6 files |
 
 ## Decisions
 
@@ -124,3 +125,5 @@ progress:
 - [Phase ?]: ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING — Collector idempotency absorbs MQ at-least-once redeliveries without in-memory dedup state
 - [Phase ?]: E2E test: G=10 GPU UUIDs x M=20 metric names = 200 rows for restamp-collision robustness
 - [Phase 04]: Plan 04-01: gateway.Config.MaxRows = VANTAGE_GATEWAY_MAX_ROWS (default 1000) as safety ceiling; nil pool guard in ListGPUs ensures JSON Content-Type invariant
+- [Phase 04]: Plan 04-02: two-query approach in db.Telemetry — separate simple/windowed SQL paths keep idx_gpu_metrics_gpu_id_ts index use clean; COALESCE on nullable text cols avoids *string scan panics
+- [Phase 04]: Plan 04-02: GPUExists (SELECT EXISTS) before Telemetry call separates 404 (unknown GPU) from 200-[] (known GPU, empty window) per OQ-2
