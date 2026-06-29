@@ -45,10 +45,10 @@
 
 ### Storage / Schema (DB)
 
-- [ ] **DB-01**: Relational time-series schema (`gpu_id`, `timestamp TIMESTAMPTZ`, numeric metric columns)
-- [ ] **DB-02**: Composite index `(gpu_id, timestamp DESC)` defined and verified used via `EXPLAIN`
-- [ ] **DB-03**: `pgxpool` connection-pool initialization in shared `pkg/db`, reused by collector and gateway
-- [ ] **DB-04**: A natural-key unique constraint enables idempotent inserts (so at-least-once redelivery cannot create duplicate rows)
+- [x] **DB-01**: Relational time-series schema (`gpu_id`, `timestamp TIMESTAMPTZ`, numeric metric columns)
+- [x] **DB-02**: Composite index `(gpu_id, timestamp DESC)` defined and verified used via `EXPLAIN`
+- [x] **DB-03**: `pgxpool` connection-pool initialization in shared `pkg/db`, reused by collector and gateway
+- [x] **DB-04**: A natural-key unique constraint enables idempotent inserts (so at-least-once redelivery cannot create duplicate rows)
 
 ### API Gateway (API)
 
@@ -126,10 +126,10 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | QA-02 | Phase 1 | Complete |
 | MQ-09 | Phase 01.1 | Complete |
 | MQ-10 | Phase 01.1 | Complete |
-| DB-01 | Phase 2 | Pending |
-| DB-02 | Phase 2 | Pending |
-| DB-03 | Phase 2 | Pending |
-| DB-04 | Phase 2 | Pending |
+| DB-01 | Phase 2 | Complete |
+| DB-02 | Phase 2 | Complete |
+| DB-03 | Phase 2 | Complete |
+| DB-04 | Phase 2 | Complete |
 | STREAM-01 | Phase 3 | Pending |
 | STREAM-02 | Phase 3 | Pending |
 | STREAM-03 | Phase 3 | Pending |

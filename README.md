@@ -19,7 +19,7 @@ CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume bidi stream: msgs ↓ 
 | **Streamer** | `cmd/streamer/` | Loops the DCGM CSV forever, restamps `now`, publishes to MQ | ⏳ Phase 3 |
 | **Collector** | `cmd/collector/` | Consumes the MQ stream, batch-inserts to Postgres | ⏳ Phase 3 |
 | **API Gateway** | `cmd/gateway/` | Read API over Postgres; OpenAPI auto-generated via `swag` | ⏳ Phase 4 |
-| **PostgreSQL** | (Helm dep) | Time-series store; schema + connection pool in `pkg/db` | 🔜 Phase 2 |
+| **PostgreSQL** | (Helm dep) | Time-series store; schema + connection pool in `pkg/db` | ✅ Phase 2 |
 
 Roadmap and per-phase plans live under [`.planning/`](.planning/); the authoritative spec is
 [`instructions.md`](instructions.md).
@@ -28,8 +28,8 @@ Roadmap and per-phase plans live under [`.planning/`](.planning/); the authorita
 
 - **Go 1.26+** (the only hard requirement to build, test, and smoke-test what exists today)
 - **make**, **curl** — for the quickstart and smoke suite
-- *Later phases:* `protoc` (regenerating proto), Docker + `docker compose` (Phase 2 dev stack),
-  `kind` + Helm (Phase 5). Install dev tooling with `make tools`.
+- **Docker + `docker compose`** — required for Phase 2: brings up the local Postgres dev stack (`make dev-up`); `psql` is NOT required on the host — `make smoke-02` runs all SQL assertions through the `postgres:17-alpine` container bundled in the compose stack
+- *Later phases:* `protoc` (regenerating proto), `kind` + Helm (Phase 5). Install dev tooling with `make tools`.
 
 ## Repository layout
 
@@ -72,6 +72,7 @@ Configuration is env-first (all optional):
 | `MQ_GRPC_ADDR` | `:50051` | gRPC data-plane listen address (`Produce`, `Consume`) |
 | `MQ_HTTP_ADDR` | `:8080` | HTTP control-plane listen address |
 | `MQ_BUFFER_SIZE` | `10000` | Ring-buffer capacity (drop-oldest when full) |
+| `MQ_CONSUME_CREDIT` | `20` | Broker-side **fallback** in-flight window, applied when a consumer's first credit message is ≤ 0. Non-positive/non-numeric values are ignored and the default is kept. |
 
 ### Delivery semantics — broker-side at-least-once
 
@@ -80,7 +81,9 @@ As of Phase 01.1 the MQ delivers **at-least-once** over a **bidirectional** `Con
 
 - The consumer opens the stream and first sends a **credit** message — its in-flight window `C`.
   The broker never has more than `C` unacked messages out to that consumer (**client-driven flow
-  control**, no over-pull).
+  control**, no over-pull). If that first credit is **≤ 0**, the broker substitutes its own default
+  (`MQ_CONSUME_CREDIT`, default `20`); any `C` above the **ceiling of `1000`** is clamped down so an
+  over-large initial credit can't exhaust broker memory.
 - The broker assigns each message a monotonic **id** and **leases** it to the consumer. A message
   leaves broker custody **only when the consumer acks that id** — `Consume{AckId: msg.id}`.
 - If a consumer disconnects with **unacked** leases, those messages are **re-enqueued at the front
@@ -139,6 +142,68 @@ go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:50051 -n 10 -mode consume -credit
 go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:50051 -n 10 -mode consume -credit 8  # the other 10 are still there
 ```
 
+## Phase 2 — Storage Foundation
+
+### Bring up local Postgres
+
+`docker-compose.yml` provides a `postgres:17-alpine` instance for local development and smoke
+testing. The credentials (`vantage`/`vantage` on `localhost:5432/vantage`) are **local dev
+defaults only** — they exist in the repo for developer convenience and are never used in
+production. Production DSNs are always supplied via `VANTAGE_DB_DSN`.
+
+```sh
+make dev-up    # start Postgres (waits for healthcheck)
+make dev-down  # stop Postgres
+```
+
+### Apply the schema
+
+The shared `pkg/db` library ships the versioned migration embedded in the binary. `cmd/migrate`
+is a one-shot runner — it reads `VANTAGE_DB_DSN`, calls `pkg/db.Migrate`, and exits:
+
+```sh
+export VANTAGE_DB_DSN=postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
+go run ./cmd/migrate
+# migrate: schema up to date
+```
+
+`pkg/db.Migrate` is idempotent (`migrate.ErrNoChange` is treated as success), so it is safe to
+call on every service startup or restart.
+
+### Storage environment variables
+
+| Env var | Required | Default | Meaning |
+|---|---|---|---|
+| `VANTAGE_DB_DSN` | yes | — | Full `postgres://` connection string; **never logged** |
+| `VANTAGE_DB_MAX_CONNS` | no | 0 (pgxpool default) | Maximum pool connections |
+
+Both env vars are read by `pkg/db.FromEnv()`, imported by Collector (Phase 3) and Gateway (Phase 4).
+
+### GPU identity convention (D-04)
+
+`gpu_id` stores the GPU **UUID** (e.g. `GPU-5fd4f087-...`), not the ordinal index (`"0"`).
+The column is named `gpu_id` to match the spec's mandated composite index expression and the
+`/api/v1/gpus/{id}` API route — but the value stored is always the UUID. The GPU ordinal,
+device name, model, hostname, and pod/container metadata are stored as descriptive columns,
+not as identity.
+
+### Verify the storage foundation
+
+```sh
+make smoke-02
+```
+
+`make smoke-02` runs `scripts/smoke/phase02-postgres.sh`, which:
+
+1. Starts the dev stack (`make dev-up`) if Postgres is not already running
+2. Applies the schema via `go run ./cmd/migrate`
+3. Asserts that `gpu_metrics` exists with the expected columns
+4. Asserts that both indexes exist: `idx_gpu_metrics_gpu_id_ts` (composite) and
+   `uq_gpu_metrics_natural_key` (unique)
+5. Seeds 100,000 rows (`10 GPUs × 10 metrics × 1,000 timestamps`) and runs `ANALYZE`
+6. Runs `EXPLAIN` on a selective single-GPU 1-hour range query and asserts `Index Scan`
+   (not `Seq Scan`) — proving the planner uses the composite index at representative scale
+
 ## Testing
 
 ### Automated (unit + concurrency + coverage)
@@ -169,7 +234,9 @@ make smoke-01      # run just Phase 1 (MQ)
 `mqprobe` (1) produces/consumes 20 messages over a real bidi `Consume` stream with credit + per-id
 acks, and (2) runs a **late-join no-loss** scenario — produce 20, consume only 10, then drain the
 remaining 10 in a third process — proving a consumer that reads fewer than produced loses nothing
-across the producer's disconnect. It cross-checks the at-least-once `GET /api/v1/queue/inspect`
+across the producer's disconnect, and (3) runs a **credit-boundary** scenario — a consumer whose
+first credit is `0` must not deadlock: the broker substitutes its default window and still drains
+all 20. It cross-checks the at-least-once `GET /api/v1/queue/inspect`
 counters (`delivered_total`, `consumed_total` = acks, `redelivered_total`) throughout — the
 redelivered count goes positive exactly when the partial consumer disconnects holding unacked
 leases, proving redelivery over the wire.
@@ -179,7 +246,7 @@ leases, proving redelivery over the wire.
 | Phase | Delivers | Verify with |
 |---|---|---|
 | **1 — Foundation** ✅ | proto contract + custom in-memory MQ (gRPC + HTTP inspect) | `make test`, `make coverage`, `make smoke-01` |
-| 2 — Storage | Postgres time-series schema + `pgxpool` in `pkg/db` | _(coming)_ `make dev-up`, `make smoke-02` |
+| **2 — Storage** ✅ | Postgres time-series schema + `pgxpool` in `pkg/db` | `make dev-up`, `go run ./cmd/migrate`, `make smoke-02` |
 | 3 — Pipeline | Streamer + Collector (CSV → MQ → Postgres) | _(coming)_ `make smoke-03` |
 | 4 — API Gateway | REST read API + auto-generated OpenAPI | _(coming)_ `make smoke-04` |
 | 5 — DevOps | Dockerfiles + Helm; runs on kind | _(coming)_ `make docker`, `make kind-up` |

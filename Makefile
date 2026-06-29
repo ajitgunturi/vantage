@@ -10,7 +10,8 @@ PB_OUT    := pkg/pb
 .DEFAULT_GOAL := help
 
 .PHONY: help tools check-protoc proto build test coverage swagger lint tidy clean \
-        smoke smoke-% docker docker-% kind-up helm-install kind-down
+        smoke smoke-% docker docker-% kind-up helm-install kind-down \
+        dev-up dev-down
 
 help: ## List targets
 	@grep -hE '^[a-zA-Z_%-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -47,8 +48,9 @@ build: ## Build all service binaries that exist (services land phase by phase)
 test: ## Run all unit + integration tests with race detector and coverage
 	go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
-coverage: ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ packages only
-	go test -race -covermode=atomic -coverprofile=coverage.out ./internal/...
+coverage: ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ and pkg/ packages (generated pkg/pb excluded)
+	PKGS=$$(go list ./internal/... ./pkg/... | grep -v '/pkg/pb'); \
+	go test -race -covermode=atomic -coverprofile=coverage.out -tags=integration $$PKGS
 	@go tool cover -func=coverage.out | tail -1
 	@total=$$(go tool cover -func=coverage.out | tail -1 | awk '{print $$3}' | tr -d '%'); \
 	echo "total coverage: $$total% (min $(COVERAGE_THRESHOLD)%)"; \
@@ -64,6 +66,12 @@ smoke-%: ## Run one phase's manual smoke check, e.g. make smoke-01
 	@found=0; for f in scripts/smoke/phase$*-*.sh; do \
 		[ -e "$$f" ] || continue; found=1; echo "== $$f =="; bash "$$f" || exit 1; done; \
 	[ "$$found" = 1 ] || { echo "no smoke scripts for phase $* (looked for scripts/smoke/phase$*-*.sh)"; exit 1; }
+
+dev-up: ## Start local dev dependencies (Postgres via docker compose)
+	docker compose up -d --wait
+
+dev-down: ## Stop local dev dependencies
+	docker compose down
 
 swagger: ## Auto-generate the OpenAPI spec from gateway code annotations
 	swag init -g cmd/gateway/main.go -o pkg/docs

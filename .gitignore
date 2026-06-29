@@ -42,3 +42,6 @@ dcgm_metrics_*.csv
 
 # GSD research tool cache (local only)
 .planning/research/.cache/
+
+# Stray binary from ad-hoc `go build ./cmd/migrate` (use bin/ instead)
+/migrate

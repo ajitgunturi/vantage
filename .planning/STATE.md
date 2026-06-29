@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 02
-current_phase_name: Storage Foundation — Schema + Connection Pool
-status: planning
-stopped_at: Phase 01.1 planned (6 plans, 4 waves)
-last_updated: "2026-06-28T15:07:56.830Z"
+current_phase_name: storage-foundation-schema-connection-pool
+status: complete
+stopped_at: Phase 02 executed + verified (8/8 must-haves; coverage 94.1%; smoke-02 green)
+last_updated: "2026-06-29T07:53:48.638Z"
 progress:
   total_phases: 7
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 29
+  completed_phases: 3
+  total_plans: 11
+  completed_plans: 11
+  percent: 43
 ---
 
 # Project State: vantage
@@ -21,15 +21,15 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 01.1 — mq-at-least-once-delivery-bidi-consume-and-ack
+- **Current focus:** Phase 02 — storage-foundation-schema-connection-pool
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 02 — Storage Foundation — Schema + Connection Pool
-- **Plan:** Not started
-- **Status:** Ready to plan
-- **Progress:** [██████░░░░] 56%
+- **Phase:** 02 (storage-foundation-schema-connection-pool) — VERIFIED ✓
+- **Plan:** 2 of 2 complete
+- **Status:** Phase 02 verified (8/8 must-haves, coverage 94.1%, smoke-02 green) — ready to plan Phase 3
+- **Progress:** [██████████] 100%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,13 +70,13 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-28T10:21:59.560Z
-**Stopped at:** Phase 01.1 planned (6 plans, 4 waves)
-**Resume file:** .planning/phases/01.1-mq-at-least-once-delivery-bidi-consume-and-ack/01.1-01-PLAN.md
+**Last session:** 2026-06-29T07:53:10.638Z
+**Stopped at:** Completed 02-01-PLAN.md
+**Resume file:** .planning/phases/02-storage-foundation-schema-connection-pool/02-02-PLAN.md
 
-- **Last action:** Phase 2 discuss-phase complete (schema/identity/migration/index forks locked in `02-CONTEXT.md`). Backfilled the Phase-1 manual smoke suite + living README: `make smoke-01` passes (produced 20 = consumed 20, inspect counters verified); `make build` made resilient to absent services (2026-06-28).
-- **Next action:** `/gsd-plan-phase 2` — storage foundation (schema + pgxpool); plans must include README + `smoke-02` tasks per the new convention.
-- **Notes:** Phase 1 exit gate is non-negotiable — `go test -race -count=50` clean and N produced = N consumed across K consumers before anything connects to the MQ. Phase 2 exit requires an `EXPLAIN`-verified composite index. Phase 5 must ship MQ as `replicas: 1` + `strategy: Recreate`. Durability is an opt-in WAL added in Phase 6 (Store-interface seam built in Phase 1); consumer idempotency (unique constraint DB-04 in Phase 2, upsert COLL-05 in Phase 3) is built upfront so enabling the WAL later is safe.
+- **Last action:** Plan 02-01 complete — pkg/db (New, Migrate, Config, FromEnv), migration SQL, and full integration suite (TestMigration, TestNew, TestUniqueConstraint, TestCompositeIndexUsed at 100k rows) all pass under -race.
+- **Next action:** Plan Phase 3 (`/gsd-plan-phase 3`) — Streamer + Collector + integration. Carry forward Phase-2 lock-ins: Collector uses INSERT...ON CONFLICT against uq_gpu_metrics_natural_key (not CopyFrom); Streamer restamps at RFC3339Nano.
+- **Notes:** Phase 3 locked decision: use INSERT...ON CONFLICT (not CopyFrom) for idempotent Collector upserts against uq_gpu_metrics_natural_key. Streamer must restamp at RFC3339Nano in Phase 3. Rancher Desktop docker socket: set DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true for integration tests.
 
 ---
 *State initialized: 2026-06-27*
@@ -90,6 +90,8 @@ progress:
 | Phase 01 P03 | ~15 minutes | 2 tasks | 6 files |
 | Phase 01.1 P01 | 4m | - tasks | - files |
 | Phase 01.1 P02 | 4m | 2 tasks | 5 files |
+| Phase 02 P01 | 13min | 3 tasks | 7 files |
+| Phase 02 P02 | 4m | 3 tasks | 5 files |
 
 ## Decisions
 
@@ -103,3 +105,7 @@ progress:
 - [Phase ?]: WorkChCap = max(BufferSize/10, 128) for pipeline headroom with safety floor
 - [Phase ?]: Build gate scoped to pkg only; cmd/mq intentionally broken until Wave 2 server rewrite
 - [Phase ?]: Drop-newest tail eviction during Requeue: prioritizes in-flight redelivery; ConsumeCredit env guard rejects n<=0 (T-01.1-03 mitigation)
+- [Phase 02]: pgxpool.ParseConfig + NewWithConfig over bare pgxpool.New — explicit MaxConns + HealthCheckPeriod tuning without DSN manipulation (plan 02-01)
+- [Phase 02]: uq_gpu_metrics_natural_key (gpu_id, metric_name, timestamp) — Phase 3 must use INSERT...ON CONFLICT, NOT CopyFrom (CopyFrom cannot express ON CONFLICT) (plan 02-01)
+- [Phase 02]: RFC3339Nano Streamer restamp locked — TIMESTAMPTZ microsecond precision; second-granularity restamps collapse same-second readings on natural key (plan 02-01)
+- [Phase ?]: cmd/migrate is a standalone binary — reusable by Phase-5 k8s init-job without shell dependency (plan 02-02)

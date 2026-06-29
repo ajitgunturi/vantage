@@ -8,7 +8,7 @@
 ## Phases
 
 - [x] **Phase 1: Foundation — Proto Contract + MQ Core** - Race-safe in-memory MQ over gRPC + HTTP, exactly-once-to-one-consumer delivery (completed 2026-06-27)
-- [ ] **Phase 2: Storage Foundation — Schema + Connection Pool** - Time-series PostgreSQL schema with an EXPLAIN-verified composite index, shared via pgxpool
+- [x] **Phase 2: Storage Foundation — Schema + Connection Pool** - Time-series PostgreSQL schema with an EXPLAIN-verified composite index, shared via pgxpool (completed 2026-06-29)
 - [ ] **Phase 3: Pipeline — Streamer + Collector + Integration** - Live CSV telemetry flowing end-to-end into PostgreSQL under concurrency
 - [ ] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry
 - [ ] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar
@@ -67,7 +67,10 @@ Plans:
   3. `pkg/db` initializes a `pgxpool` connection pool that both the Collector and the API Gateway can import and reuse.
   4. The schema carries a natural-key unique constraint enabling idempotent inserts, so at-least-once redelivery (once durability is enabled in Phase 6) cannot create duplicate rows.
 
-**Plans**: TBD
+**Plans**: 2/2 plans complete
+
+- [x] 02-01-PLAN.md — pkg/db slice: migration (table + composite index + natural-key constraint) + pgxpool + golang-migrate + testcontainers index-proof at 100k rows (wave 1)
+- [x] 02-02-PLAN.md — cross-cutting harness: docker-compose dev stack, cmd/migrate, make dev-up/dev-down + coverage scope to ./pkg/..., phase02 smoke script, README (wave 2)
 
 ### Phase 3: Pipeline — Streamer + Collector + Integration
 
@@ -131,7 +134,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Foundation — Proto Contract + MQ Core | 3/3 | Complete   | 2026-06-27 |
 | 01.1 MQ At-Least-Once — Bidi Consume + Ack (INSERTED) | 6/6 | Complete    | 2026-06-28 |
-| 2. Storage Foundation — Schema + Connection Pool | 0/TBD | Not started | - |
+| 2. Storage Foundation — Schema + Connection Pool | 2/2 | Complete   | 2026-06-29 |
 | 3. Pipeline — Streamer + Collector + Integration | 0/TBD | Not started | - |
 | 4. API Gateway + OpenAPI Docs | 0/TBD | Not started | - |
 | 5. DevOps + Quality Gates | 0/TBD | Not started | - |
