@@ -272,6 +272,64 @@ func TestIdempotentUpsert(t *testing.T) {
 		"duplicate message must not create a second row — ON CONFLICT DO NOTHING (COLL-05)")
 }
 
+// TestBadProtoSkipped verifies that a TelemetryMessage with an unparseable
+// timestamp is silently skipped (log-and-continue) and does not abort the batch
+// or prevent subsequent valid messages from landing. Covers the persistBatch
+// bad-proto path (T-03-03c).
+func TestBadProtoSkipped(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	conn, _ := newBufconnMQ(t)
+	client := pb.NewMQServiceClient(conn)
+
+	// Produce one bad-proto message (empty timestamp → models.FromProto fails).
+	badMsg := &pb.TelemetryMessage{
+		Uuid:       "GPU-bad0-0000-0000-0000-000000000000",
+		GpuId:      "0",
+		MetricName: "DCGM_FI_DEV_GPU_UTIL",
+		Timestamp:  "", // invalid — FromProto will return a parse error
+		Value:      1.0,
+		Device:     "nvidia0",
+		ModelName:  "NVIDIA H100",
+		Hostname:   "test-host",
+	}
+	_, err := client.Produce(ctx, &pb.ProduceRequest{Message: badMsg})
+	require.NoError(t, err, "produce bad-proto message")
+
+	// Produce one valid message after the bad one.
+	goodMsg := &pb.TelemetryMessage{
+		Uuid:       "GPU-good-0000-0000-0000-000000000000",
+		GpuId:      "0",
+		MetricName: "DCGM_FI_DEV_GPU_UTIL",
+		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
+		Value:      2.0,
+		Device:     "nvidia0",
+		ModelName:  "NVIDIA H100",
+		Hostname:   "test-host",
+	}
+	_, err = client.Produce(ctx, &pb.ProduceRequest{Message: goodMsg})
+	require.NoError(t, err, "produce valid message")
+
+	cfg := collector.Config{
+		BatchSize: 10,
+		FlushMS:   300,
+		Credit:    20,
+	}
+
+	consumeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	err = collector.Consume(consumeCtx, client, testPool, cfg)
+	if err != nil && err != context.DeadlineExceeded {
+		t.Logf("Consume returned: %v", err)
+	}
+
+	// The bad-proto message must be skipped (not inserted), the valid one must land.
+	require.Equal(t, 1, rowCount(t),
+		"bad-proto message must be skipped; only the valid message must land (T-03-03c)")
+}
+
 // TestReconnect covers COLL-02: the collector reconnects after the MQ drops the
 // stream. An ephemeral TCP listener is used so the server can be stopped and
 // re-bound. The post-restart messages must land after reconnection.
@@ -303,7 +361,7 @@ func TestReconnect(t *testing.T) {
 		FlushMS:   200,
 		Credit:    20,
 	}
-	runCtx, runCancel := context.WithTimeout(ctx, 30*time.Second)
+	runCtx, runCancel := context.WithTimeout(ctx, 60*time.Second)
 	defer runCancel()
 
 	runDone := make(chan error, 1)
@@ -318,11 +376,17 @@ func TestReconnect(t *testing.T) {
 	}, 15*time.Second, 200*time.Millisecond,
 		"first 5 rows must land before server restart (COLL-02 pre-condition)")
 
-	// GracefulStop the first server, releasing the port. The collector stream ends.
-	grpcSrv1.GracefulStop()
+	// Stop the first server immediately. Stop() is used instead of GracefulStop()
+	// because GracefulStop() blocks for ~30s (the gRPC drain interval) while the
+	// server-side Consume handler waits for ctx.Done(), eating through the runCtx
+	// deadline before the collector ever reconnects. Stop() closes all connections
+	// immediately, causing stream.Recv() to return on the client side at once, so
+	// the collector reconnects well within the runCtx window. Both Stop() and
+	// GracefulStop() cause the stream to drop — both are valid test vectors for COLL-02.
+	grpcSrv1.Stop()
 
 	// Brief pause so the OS releases the TCP port before we re-bind.
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Start a fresh MQ server on the same address.
 	lis2, err := net.Listen("tcp", addr)
