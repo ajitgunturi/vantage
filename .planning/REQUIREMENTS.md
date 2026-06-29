@@ -12,18 +12,20 @@
 ### Message Queue (MQ)
 
 - [x] **MQ-01**: `Produce` unary gRPC RPC accepts a telemetry payload and enqueues it
-- [x] **MQ-02**: `Consume` server-streaming gRPC RPC delivers enqueued messages to a collector
-- [x] **MQ-03**: Each message is delivered to exactly one consumer (work-queue) — no duplication across concurrent collectors
+- [x] **MQ-02**: `Consume` gRPC RPC delivers enqueued messages to a collector _(Phase 1: server-streaming; **revised to bidirectional streaming in Phase 01.1** — see MQ-09/MQ-10, ADR-001)_
+- [x] **MQ-03**: Each message is delivered to exactly one consumer in steady state — no duplication across concurrent collectors _(at-least-once redelivery on disconnect may duplicate; absorbed by the idempotent Collector — MQ-09, ADR-001)_
 - [x] **MQ-04**: In-memory thread-safe queue built from native Go concurrency only (no third-party broker, no disk)
 - [x] **MQ-05**: Bounded buffer with a defined drop policy when full (no unbounded memory growth)
 - [x] **MQ-06**: HTTP `GET /api/v1/queue/inspect` returns a JSON summary of queue status
 - [x] **MQ-07**: Consumer disconnect is handled gracefully with no goroutine leak
 - [x] **MQ-08**: MQ storage sits behind a `Store` interface; the in-memory backend is the default implementation
+- [x] **MQ-09**: Broker-side **at-least-once** delivery — a message is removed only when the consumer acks it (by broker-assigned `uint64 id`); unacked in-flight messages are re-queued and redelivered when a consumer disconnects. Achieved in memory via redelivery, no disk. _(Phase 01.1 — ADR-001)_
+- [x] **MQ-10**: `Consume` is a **bidirectional** stream with **client-driven credit** flow control (initial credit `C`; outstanding-unacked ≤ `C`, replenished per ack) so the broker never over-pulls beyond a consumer's in-flight window. _(Phase 01.1 — ADR-001)_
 
 ### MQ Durability (DUR)
 
 - [ ] **DUR-01**: Opt-in WAL-backed `Store` — appends each `Produce` to a write-ahead log with batched group-commit fsync; enabled via config (in-memory remains the default)
-- [ ] **DUR-02**: On restart in WAL mode, the broker replays all persisted messages (at-least-once delivery; consumers must be idempotent)
+- [ ] **DUR-02**: On restart in WAL mode, the broker replays all persisted messages (crash-recovery durability; consumers must be idempotent). _Note: delivery-level at-least-once now lives in MQ-09 (Phase 01.1); Phase 6 narrows to crash durability — reconcile when Phase 6 is planned (ADR-001)._
 
 ### Streamer (STREAM)
 
@@ -100,7 +102,7 @@ Explicitly excluded by `instructions.md`. Documented to prevent scope creep.
 |---------|--------|
 | Third-party message brokers (Kafka/NATS/RabbitMQ/Redis) | MQ must be built from scratch |
 | MQ clustering / multi-replica | Spec: single-replica in-memory broker (durable WAL is local-disk, not a cluster) |
-| Per-message ACK/NAK protocol | Durable mode reaches at-least-once via WAL replay + idempotent consumer, not acks |
+| ~~Per-message ACK/NAK protocol~~ | **No longer out of scope** — now in scope as MQ-09/MQ-10 (Phase 01.1, ADR-001). Broker-side at-least-once via per-message ack + credit + redelivery, in memory. |
 | Consumer groups / message replay | Out of assignment scope |
 | API authentication / authorization | Not in assignment scope |
 | Hand-written OpenAPI spec | Must be auto-generated from annotations |
@@ -122,6 +124,8 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | MQ-07 | Phase 1 | Complete |
 | MQ-08 | Phase 1 | Complete |
 | QA-02 | Phase 1 | Complete |
+| MQ-09 | Phase 01.1 | Complete |
+| MQ-10 | Phase 01.1 | Complete |
 | DB-01 | Phase 2 | Pending |
 | DB-02 | Phase 2 | Pending |
 | DB-03 | Phase 2 | Pending |
@@ -157,10 +161,10 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 
 **Coverage:**
 
-- v1 requirements: 41 total
-- Mapped to phases: 41
+- v1 requirements: 43 total
+- Mapped to phases: 43
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-27*
-*Last updated: 2026-06-28 — added cross-cutting living README + manual smoke suite + docker-compose dev stack (DOC-01, QA-06, OPS-06; harness established in Phase 2)*
+*Last updated: 2026-06-28 — added MQ-09/MQ-10 (broker-side at-least-once: bidi Consume + ack + credit + redelivery; Phase 01.1, ADR-001); reframed MQ-02/MQ-03; per-message-ack moved out of Out-of-Scope; DUR-02 narrowed to crash durability*

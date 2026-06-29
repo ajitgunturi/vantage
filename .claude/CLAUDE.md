@@ -36,7 +36,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
 | Go | 1.26.4 | Runtime for all four microservices | Latest stable; `min go 1.22` in go.mod minimum for path-variable ServeMux. 1.26.x adds range-over-func and other ergonomics with no migration cost. |
-| google.golang.org/grpc | v1.81.1 | gRPC runtime, server-streaming for MQ Consume + Produce | The only maintained Go gRPC implementation; v1.81.1 is May 2026. Pin this in go.mod — minor releases have behavioral changes. |
+| google.golang.org/grpc | v1.81.1 | gRPC runtime; bidirectional streaming for MQ Consume (ack+credit, ADR-001) + unary Produce | The only maintained Go gRPC implementation; v1.81.1 is May 2026. Pin this in go.mod — minor releases have behavioral changes. |
 | google.golang.org/protobuf | v1.36.11 | Protobuf v3 runtime / generated code | Replaces the deprecated `github.com/golang/protobuf`. v1.36.11 is Dec 2025; fixes a JSON unmarshaling CVE present in <v1.33. |
 | github.com/jackc/pgx/v5 | v5.10.0 | PostgreSQL driver + connection pool (pgxpool) | De-facto standard; v5 rewrote pgxpool for correct concurrency. pgx.CopyFrom uses the PostgreSQL COPY protocol — the fastest bulk-insert path, 5-10x faster than multi-row INSERT at scale. |
 | github.com/go-chi/chi/v5 | v5.3.0 | HTTP router for API Gateway + MQ control plane | 100% net/http compatible — uses `http.Handler`/`http.ResponseWriter`/`*http.Request` with no custom context type. Supports path variables (`{id}`) needed for `/gpus/{id}/telemetry`. Zero external dependencies. |
@@ -101,7 +101,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 
 ## Stack Patterns by Variant
 
-- Define service in `api/proto/mq.proto` with `Produce(MetricPayload) returns (Ack)` and `Consume(ConsumeRequest) returns (stream MetricPayload)`
+- Define service in `api/proto/mq.proto` with `Produce(MetricPayload) returns (Ack)` and a **bidirectional** `Consume(stream ConsumeControl) returns (stream MetricPayload)` — client streams credit + acks, server streams messages (broker-side at-least-once, ADR-001)
 - Generate with `buf generate` from `api/proto/`
 - Implement `grpc.NewServer()` on one port (default 50051); `net/http` ServeMux on a second port (8080) for the control plane
 - Keep gRPC server and HTTP server in separate goroutines; use `errgroup.Group` from `golang.org/x/sync/errgroup` to manage both

@@ -54,25 +54,39 @@ done
 [ "$ready" = 1 ] || { cat "$TMP/mq.log"; fail "mq HTTP not ready after 5s"; }
 pass "control plane up — GET /api/v1/queue/inspect"
 
-echo "producing/consuming ${N} messages via mqprobe (consumer attached first)..."
-go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$N" || fail "mqprobe produce/consume failed"
-pass "data plane — produced ${N}, consumed ${N} over a Consume stream"
+# Data plane over the bidi at-least-once path: the consumer attaches first, sends
+# its initial credit window, then receives AND acks each message by broker id
+# (mqprobe -mode both). consumed_total now counts acks, not sends.
+echo "producing/consuming ${N} messages via bidi mqprobe (consumer attached first, credit+ack)..."
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$N" -credit "$N" || fail "mqprobe bidi produce/consume failed"
+pass "data plane — produced ${N}, consumed+acked ${N} over a bidi Consume stream"
 
-# Late-join path: producer publishes and disconnects, THEN a consumer attaches.
-# Separate mqprobe invocations (separate processes) prove the MQ buffers messages
-# for a consumer that joins after the producer is gone — not just live fan-out.
-echo "producing ${N} messages, then consuming them in a later invocation (late join)..."
-go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$N" -mode produce || fail "mqprobe produce-only failed"
-go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$N" -mode consume || fail "mqprobe late-join consume failed"
-pass "late join — ${N} messages buffered before any consumer attached, then drained"
+# Late-join NO-LOSS path: producer publishes and disconnects, THEN a consumer
+# attaches and reads FEWER than produced — the remainder must still be retrievable.
+# Three separate mqprobe processes (produce-only, partial consume, drain-the-rest)
+# prove the MQ retains unconsumed messages across producer disconnect and that a
+# consumer reading K < N loses nothing: a follow-up consume drains the other N-K.
+HALF=$(( N / 2 ))
+REST=$(( N - HALF ))
+echo "late join: producing ${N}, consuming ${HALF} (fewer than produced), then draining the remaining ${REST}..."
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$N"    -mode produce            || fail "mqprobe produce-only failed"
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$HALF" -mode consume -credit 8  || fail "mqprobe partial consume failed"
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n "$REST" -mode consume -credit 8  || fail "mqprobe drain-remainder failed (LOSS: ${REST} messages not retained)"
+pass "late join no-loss — read ${HALF}/${N}, the remaining ${REST} were retained and drained (zero loss)"
 
-# Cross-check the control-plane counters (sed keeps this jq-free).
+# Cross-check the at-least-once control-plane counters (sed keeps this jq-free).
+# Parse the Plan-04 counter names: delivered_total (sends), consumed_total (acks),
+# redelivered_total (re-enqueued on disconnect-with-unacked; 0 on the happy path).
 BODY="$(curl -sf "http://${HTTP_HOST}/api/v1/queue/inspect")" || fail "inspect curl failed"
 echo "inspect: ${BODY}"
-produced="$(printf '%s' "$BODY" | sed -n 's/.*"produced_total":\([0-9]*\).*/\1/p')"
-consumed="$(printf '%s' "$BODY" | sed -n 's/.*"consumed_total":\([0-9]*\).*/\1/p')"
-[ "${produced:-0}" -ge "$N" ] || fail "produced_total=${produced} < ${N}"
-[ "${consumed:-0}" -ge "$N" ] || fail "consumed_total=${consumed} < ${N}"
-pass "inspect counters — produced_total=${produced} consumed_total=${consumed}"
+produced="$(printf '%s'    "$BODY" | sed -n 's/.*"produced_total":\([0-9]*\).*/\1/p')"
+delivered="$(printf '%s'   "$BODY" | sed -n 's/.*"delivered_total":\([0-9]*\).*/\1/p')"
+consumed="$(printf '%s'    "$BODY" | sed -n 's/.*"consumed_total":\([0-9]*\).*/\1/p')"
+redelivered="$(printf '%s' "$BODY" | sed -n 's/.*"redelivered_total":\([0-9]*\).*/\1/p')"
+[ "${produced:-0}"    -ge "$N" ] || fail "produced_total=${produced} < ${N}"
+[ "${delivered:-0}"   -ge "$N" ] || fail "delivered_total=${delivered} < ${N} (broker did not send at least N)"
+[ "${consumed:-0}"    -ge "$N" ] || fail "consumed_total=${consumed} < ${N} (acks did not arrive)"
+[ "${redelivered:-0}" -ge 0    ] || fail "redelivered_total=${redelivered} is negative"
+pass "inspect counters — produced_total=${produced} delivered_total=${delivered} consumed_total(acks)=${consumed} redelivered_total=${redelivered}"
 
-echo "${GREEN}${BOLD}PASS${RST} — Phase 1 MQ smoke"
+echo "${GREEN}${BOLD}PASS${RST} — Phase 1 MQ smoke (bidi at-least-once)"

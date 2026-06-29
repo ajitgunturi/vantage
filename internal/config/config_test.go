@@ -13,6 +13,7 @@ func TestFromEnv_Defaults(t *testing.T) {
 	t.Setenv("MQ_GRPC_ADDR", "")
 	t.Setenv("MQ_HTTP_ADDR", "")
 	t.Setenv("MQ_BUFFER_SIZE", "")
+	t.Setenv("MQ_CONSUME_CREDIT", "")
 
 	cfg := config.FromEnv()
 
@@ -20,6 +21,7 @@ func TestFromEnv_Defaults(t *testing.T) {
 	require.Equal(t, ":8080", cfg.HTTPAddr)
 	require.Equal(t, 10000, cfg.BufferSize)
 	require.Equal(t, 1024, cfg.WorkChCap)
+	require.Equal(t, 20, cfg.ConsumeCredit, "ConsumeCredit default must be 20")
 }
 
 func TestFromEnv_Overrides(t *testing.T) {
@@ -59,4 +61,29 @@ func TestFromEnv_SmallBufferSize_WorkChCap_Floor(t *testing.T) {
 
 	require.Equal(t, 100, cfg.BufferSize)
 	require.Equal(t, 128, cfg.WorkChCap, "WorkChCap must be at least 128")
+}
+
+func TestFromEnv_ConsumeCredit_Override(t *testing.T) {
+	t.Setenv("MQ_CONSUME_CREDIT", "50")
+
+	cfg := config.FromEnv()
+
+	require.Equal(t, 50, cfg.ConsumeCredit, "valid MQ_CONSUME_CREDIT must override default")
+}
+
+func TestFromEnv_ConsumeCredit_Invalid_Ignored(t *testing.T) {
+	t.Setenv("MQ_CONSUME_CREDIT", "not-a-number")
+
+	cfg := config.FromEnv()
+
+	require.Equal(t, 20, cfg.ConsumeCredit, "non-numeric MQ_CONSUME_CREDIT must keep default 20")
+}
+
+func TestFromEnv_ConsumeCredit_NonPositive_Ignored(t *testing.T) {
+	for _, v := range []string{"0", "-1", "-100"} {
+		t.Setenv("MQ_CONSUME_CREDIT", v)
+		cfg := config.FromEnv()
+		require.Equal(t, 20, cfg.ConsumeCredit,
+			"non-positive MQ_CONSUME_CREDIT=%q must keep default 20", v)
+	}
 }

@@ -100,6 +100,42 @@ func (r *RingStore) Inspect() StoreStats {
 	}
 }
 
+// Requeue inserts msgs at the front of the ring buffer so they are the next
+// messages returned by TryDequeue (oldest-first redelivery, MQ-09 / D-05).
+//
+// Algorithm: iterate msgs in reverse order so that msgs[0] lands at the head
+// after all insertions, giving msgs[0] the earliest dequeue priority.
+//
+// For each message, if the ring is full, evict the newest (tail-side) entry
+// first (drop-newest semantics during requeue — inverse of Enqueue's drop-oldest),
+// increment dropped, then decrement head and store the message.
+//
+// The whole method holds r.mu.Lock() to preserve the single-lock discipline;
+// no channel is touched under the lock (prevents deadlock with the dispatch loop).
+//
+// Requeue(nil) and Requeue([]) are no-ops.
+func (r *RingStore) Requeue(msgs []*pb.TelemetryMessage) {
+	if len(msgs) == 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Insert in reverse so msgs[0] ends up at head.
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if r.count == r.cap {
+			// Ring full: evict the newest (tail-side) entry to prioritize redelivery.
+			r.tail = (r.tail - 1 + r.cap) % r.cap
+			r.buf[r.tail] = nil // release pointer for GC
+			r.count--
+			r.dropped++
+		}
+		r.head = (r.head - 1 + r.cap) % r.cap
+		r.buf[r.head] = msgs[i]
+		r.count++
+	}
+}
+
 // Close is a no-op for the in-memory backend. Returns nil to satisfy the Store
 // interface. WAL backends may flush pending writes and close file handles here.
 func (r *RingStore) Close() error {

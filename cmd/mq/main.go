@@ -30,7 +30,7 @@ func main() {
 	cfg := config.FromEnv()
 
 	s := queue.NewRingStore(cfg.BufferSize)
-	mqSrv := server.NewMQServer(s, cfg.WorkChCap)
+	mqSrv := server.NewMQServer(s, cfg.ConsumeCredit)
 	defer mqSrv.Shutdown()
 
 	// gRPC server with keepalive options for long-lived Consume streams.

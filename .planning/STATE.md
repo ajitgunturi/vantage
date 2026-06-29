@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01
-current_phase_name: foundation-proto-contract-mq-core
-status: phase-verified
-stopped_at: Phase 1 smoke suite + README backfill landed
-last_updated: "2026-06-28T00:00:00.000Z"
+current_phase: 02
+current_phase_name: Storage Foundation — Schema + Connection Pool
+status: planning
+stopped_at: Phase 01.1 planned (6 plans, 4 waves)
+last_updated: "2026-06-28T15:07:56.830Z"
 progress:
-  total_phases: 6
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 17
+  total_phases: 7
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 9
+  percent: 29
 ---
 
 # Project State: vantage
@@ -21,15 +21,15 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 01 verified complete — next is Phase 02 (storage foundation: schema + pgxpool)
+- **Current focus:** Phase 01.1 — mq-at-least-once-delivery-bidi-consume-and-ack
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 01 (foundation-proto-contract-mq-core) — VERIFIED ✅ (PASSED 4/4)
-- **Plan:** 3 of 3 complete
-- **Status:** Phase verified — proto contract + race-safe MQ core landed; ready for `/gsd-plan-phase 2`
-- **Progress:** [██████████] 100%
+- **Phase:** 02 — Storage Foundation — Schema + Connection Pool
+- **Plan:** Not started
+- **Status:** Ready to plan
+- **Progress:** [██████░░░░] 56%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -64,11 +64,15 @@ progress:
 
 - None.
 
+### Roadmap Evolution
+
+- Phase 01.1 inserted after Phase 1: Upgrade MQ delivery to broker-side at-least-once: bidi Consume with client credit + per-message Ack + redelivery-on-disconnect. Triggered by reproduced 1000-produce/20-consume silent loss (consumed_total=513, client read 20). Must reconcile with Phase 2 SC4 / Phase 3 SC2 / Phase 6 WAL. (URGENT)
+
 ## Session Continuity
 
-**Last session:** 2026-06-27T18:27:38.053Z
-**Stopped at:** Phase 2 context gathered
-**Resume file:** /Users/ajitg/workspace/vantage/.planning/phases/02-storage-foundation-schema-connection-pool/02-CONTEXT.md
+**Last session:** 2026-06-28T10:21:59.560Z
+**Stopped at:** Phase 01.1 planned (6 plans, 4 waves)
+**Resume file:** .planning/phases/01.1-mq-at-least-once-delivery-bidi-consume-and-ack/01.1-01-PLAN.md
 
 - **Last action:** Phase 2 discuss-phase complete (schema/identity/migration/index forks locked in `02-CONTEXT.md`). Backfilled the Phase-1 manual smoke suite + living README: `make smoke-01` passes (produced 20 = consumed 20, inspect counters verified); `make build` made resilient to absent services (2026-06-28).
 - **Next action:** `/gsd-plan-phase 2` — storage foundation (schema + pgxpool); plans must include README + `smoke-02` tasks per the new convention.
@@ -84,6 +88,8 @@ progress:
 | Phase 01 P01 | 6m | 3 tasks | 7 files |
 | Phase 01 P02 | 3m | 2 tasks | 5 files |
 | Phase 01 P03 | ~15 minutes | 2 tasks | 6 files |
+| Phase 01.1 P01 | 4m | - tasks | - files |
+| Phase 01.1 P02 | 4m | 2 tasks | 5 files |
 
 ## Decisions
 
@@ -95,3 +101,5 @@ progress:
 - [Phase ?]: dispatch uses defer close(workCh): eliminates double-close risk across all exit paths
 - [Phase ?]: errgroup manages gRPC+HTTP+shutdown goroutines for ordered teardown on SIGTERM
 - [Phase ?]: WorkChCap = max(BufferSize/10, 128) for pipeline headroom with safety floor
+- [Phase ?]: Build gate scoped to pkg only; cmd/mq intentionally broken until Wave 2 server rewrite
+- [Phase ?]: Drop-newest tail eviction during Requeue: prioritizes in-flight redelivery; ConsumeCredit env guard rejects n<=0 (T-01.1-03 mitigation)

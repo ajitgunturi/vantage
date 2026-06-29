@@ -17,13 +17,12 @@ with **no message loss or duplication** across horizontally-scaled producers and
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Custom in-memory MQ (from scratch, no third-party brokers) with gRPC data plane + HTTP control plane _(Validated in Phase 1)_
+- [x] gRPC `Produce` (unary) and `Consume` (**bidi stream**, ADR-001); concurrent collectors get unique messages in steady state, with **broker-side at-least-once** (per-message ack + client credit + redelivery-on-disconnect) _(Validated in Phase 01.1 — proven by `-race -count=50` + `make smoke-01` redelivered_total>0)_
+- [x] HTTP `GET /api/v1/queue/inspect` returns queue status JSON _(Validated in Phase 1; at-least-once counters delivered/consumed=acks/redelivered/in_flight added in Phase 01.1)_
 
 ### Active
 
-- [ ] Custom in-memory MQ (from scratch, no third-party brokers) with gRPC data plane + HTTP control plane
-- [ ] gRPC `Produce` (unary) and `Consume` (server-stream); concurrent collectors get unique messages
-- [ ] HTTP `GET /api/v1/queue/inspect` returns queue status JSON
 - [ ] MQ storage behind a `Store` interface: in-memory default, plus an opt-in WAL persistence backend (batched group-commit fsync + replay-on-restart, at-least-once)
 - [ ] Consumer-side idempotency (DB unique constraint + collector upsert) so at-least-once replay cannot duplicate rows
 - [ ] Streamer loops the DCGM CSV indefinitely, restamps current timestamp, publishes via gRPC; up to 10 instances
@@ -73,7 +72,8 @@ with **no message loss or duplication** across horizontally-scaled producers and
 |----------|-----------|---------|
 | Single Go module (`cmd/` + shared `pkg/`) over multi-module | Matches `instructions.md` blueprint; simpler builds; independence enforced by directory/Dockerfile convention | — Pending |
 | Custom MQ on native Go channels + RWMutex | Spec forbids third-party brokers; demonstrates from-scratch concurrency design | — Pending |
-| MQ durability as opt-in WAL behind a `Store` interface (in-memory default) | Brief mandates in-memory, but a broker crash loses un-consumed messages; an opt-in WAL (batched group-commit fsync + replay-on-restart, at-least-once) adds durability without breaking the spec-compliant default | — Pending |
+| MQ durability as opt-in WAL behind a `Store` interface (in-memory default) | Brief mandates in-memory, but a broker crash loses un-consumed messages; an opt-in WAL (batched group-commit fsync + replay-on-restart) adds crash durability without breaking the spec-compliant default | — Pending |
+| **Bidi `Consume` + broker-side at-least-once** (Phase 01.1, ADR-001) — DEVIATION | Brief specifies *server-side streaming* `Consume` and the project had placed per-message ack out of scope. A reproduced defect (produce 1000, short consumer reads 20 → ~493 silently lost on disconnect) motivated moving at-least-once into the broker: bidi stream + per-message ack + client-driven credit + redelivery-on-disconnect. Owner-approved, documented deviation; in-memory/no-disk/single-replica constraints unchanged. Delivery-level at-least-once now lives here; Phase 6 WAL narrows to crash durability. See `docs/adr/ADR-001-bidi-at-least-once-delivery.md` | — Pending |
 | Vertical-MVP phase structure | Get a running end-to-end pipeline early, then harden slice by slice | — Pending |
 | `swag` for OpenAPI generation | Spec mandates fully auto-generated docs from code annotations | — Pending |
 | Living README + runnable manual smoke suite, built incrementally per phase | Readers can clone → run → see each component work; user wants a hands-on suite to verify each phase's deliverables. Makefile-driven shell smoke scripts + docker-compose dev stack; harness established in Phase 2 (first Postgres/Docker phase, with Phase-1 MQ backfill) | — Pending |
@@ -96,4 +96,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-27 after initialization*
+*Last updated: 2026-06-28 after Phase 01.1 (MQ at-least-once delivery) completed and verified*

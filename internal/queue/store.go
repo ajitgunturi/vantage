@@ -43,6 +43,15 @@ type Store interface {
 	// with future mutations.
 	Inspect() StoreStats
 
+	// Requeue inserts msgs at the front of the buffer for oldest-first redelivery
+	// (MQ-09 / D-05 at-least-once semantics). The first element of msgs is
+	// delivered first on the next TryDequeue.
+	//
+	// When the ring is full, the newest (tail-side) entry is evicted to make room,
+	// incrementing the Dropped counter. Requeue([]) and Requeue(nil) are no-ops.
+	// Never blocks; does not touch any channel.
+	Requeue(msgs []*pb.TelemetryMessage)
+
 	// Close releases any resources held by the backend. The in-memory backend
 	// returns nil; WAL backends may flush and close file handles here.
 	Close() error

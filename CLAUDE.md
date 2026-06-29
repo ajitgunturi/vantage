@@ -16,11 +16,11 @@ autonomous sessions — read it before planning or writing code.
 |---|---|---|---|
 | **MQ** | `cmd/mq/` | Custom message broker, **from scratch** — in-memory only | gRPC (data) + HTTP (control) |
 | **Streamer** | `cmd/streamer/` | Loops the DCGM CSV forever, restamps `now`, publishes | gRPC client → MQ `Produce` |
-| **Collector** | `cmd/collector/` | Consumes MQ server-stream, batch-inserts to Postgres | gRPC client + `pgxpool` |
+| **Collector** | `cmd/collector/` | Consumes MQ bidi stream (acks after persist), batch-inserts to Postgres | gRPC client + `pgxpool` |
 | **API Gateway** | `cmd/gateway/` | Read API over Postgres; OpenAPI auto-generated | HTTP/REST + `swag` |
 | **PostgreSQL** | (Helm dep) | Single source of truth; time-series schema | — |
 
-Data flow: `CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume stream)→ Collector → Postgres → API Gateway → client`
+Data flow: `CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume bidi stream; Collector acks)→ Collector → Postgres → API Gateway → client`
 
 ---
 
@@ -82,8 +82,11 @@ make kind-up / helm-install / kind-down   # local k8s lifecycle
   default**; an **opt-in WAL persistence backend** (batched group-commit fsync + replay-on-restart,
   at-least-once) adds crash durability without changing the default — built in Phase 6. (This is a
   deliberate, documented extension of the brief's in-memory-only baseline; see PROJECT.md Key Decisions.)
-- MQ delivery is **decoupled and thread-safe**; multiple Collectors must receive **unique** messages
-  (no duplication, no leaks). Prove it with `go test -race` concurrency tests before wiring network.
+- MQ delivery is **decoupled and thread-safe**; multiple Collectors receive **unique** messages in
+  steady state (no leaks). As of Phase 01.1 delivery is **broker-side at-least-once** (ADR-001):
+  bidi `Consume` with per-message ack + client-driven credit; unacked in-flight messages are
+  redelivered on disconnect (duplicates possible, absorbed by the idempotent Collector). Still
+  in-memory — no disk. Prove it with `go test -race` concurrency tests before wiring network.
 - **OpenAPI is fully auto-generated** from `swag` code annotations — never hand-write the spec.
 - DB schema is time-series shaped (`gpu_id`, `timestamp TIMESTAMPTZ`, numeric cols) with a
   **composite index `(gpu_id, timestamp DESC)`** explicitly in the DDL.
@@ -95,7 +98,7 @@ make kind-up / helm-install / kind-down   # local k8s lifecycle
 
 API Gateway endpoints (exact):
 `GET /api/v1/gpus` · `GET /api/v1/gpus/{id}/telemetry` · `…/telemetry?start_time=…&end_time=…`
-MQ endpoints: gRPC `Produce` (unary), `Consume` (server-stream) · HTTP `GET /api/v1/queue/inspect`.
+MQ endpoints: gRPC `Produce` (unary), `Consume` (**bidi stream**: server→msgs, client→credit+acks; ADR-001) · HTTP `GET /api/v1/queue/inspect`.
 
 ---
 

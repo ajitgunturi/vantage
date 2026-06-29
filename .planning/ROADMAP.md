@@ -24,6 +24,8 @@
 **Requirements**: MQ-01, MQ-02, MQ-03, MQ-04, MQ-05, MQ-06, MQ-07, MQ-08, QA-02
 **Success Criteria** (what must be TRUE):
 
+> _Note: SC 1–2 describe Phase 1 as delivered (server-stream, exactly-once-to-one). The `Consume` contract is **superseded by Phase 01.1** (bidi + at-least-once, ADR-001); this record is retained as history._
+
   1. A producer client can call `Produce` (unary gRPC) and a consumer client can call `Consume` (server-stream) against the running MQ, exchanging telemetry payloads defined by `api/proto/mq.proto` and its generated stubs.
   2. With K concurrent consumers and N produced messages, exactly N messages are consumed in total — no duplication, no loss (delivery-count test: N produced = N consumed across K consumers).
   3. `go test -race -count=50` runs clean (no data races, no deadlocks from holding a lock across a channel send) and the MQ package meets the ≥90% line-coverage gate.
@@ -34,6 +36,23 @@
 - [x] 01-01-PLAN.md
 - [x] 01-02-PLAN.md
 - [x] 01-03-PLAN.md
+
+### Phase 01.1: MQ At-Least-Once Delivery — Bidi Consume and Ack (INSERTED)
+
+**Goal:** Upgrade MQ delivery from server-stream at-most-once to broker-side **at-least-once** — bidirectional `Consume` with client-driven credit + per-message ack + redelivery-on-disconnect — in memory, no disk. **Deliberate, owner-approved deviation from the brief** (see `docs/adr/ADR-001-bidi-at-least-once-delivery.md`). Supersedes the Phase-1 "server-stream / exactly-once-to-one" contract.
+**Requirements**: MQ-09, MQ-10 (reframes MQ-02, MQ-03)
+**Depends on:** Phase 1
+**Context:** `01.1-CONTEXT.md` (discussed 2026-06-28) · **ADR:** ADR-001
+**Plans:** 6/6 plans complete
+
+Plans:
+
+- [x] 01.1-01-PLAN.md — Proto contract: bidi Consume + uint64 id + ConsumeClientMsg; regen pkg/pb (wave 1)
+- [x] 01.1-02-PLAN.md — Store.Requeue front-insertion + ConsumeCredit config (wave 1)
+- [x] 01.1-03-PLAN.md — Bidi at-least-once engine rewrite + bidi mock + 5 D-10 race tests + cmd/mq wiring (wave 2)
+- [x] 01.1-04-PLAN.md — Inspect counters: consumed=acks, delivered/redelivered/in_flight (wave 3)
+- [x] 01.1-05-PLAN.md — mqprobe bidi+ack client rewrite + -credit flag (wave 3)
+- [x] 01.1-06-PLAN.md — Smoke suite ack-based + late-join no-loss + README (wave 4)
 
 ### Phase 2: Storage Foundation — Schema + Connection Pool
 
@@ -111,6 +130,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation — Proto Contract + MQ Core | 3/3 | Complete   | 2026-06-27 |
+| 01.1 MQ At-Least-Once — Bidi Consume + Ack (INSERTED) | 6/6 | Complete    | 2026-06-28 |
 | 2. Storage Foundation — Schema + Connection Pool | 0/TBD | Not started | - |
 | 3. Pipeline — Streamer + Collector + Integration | 0/TBD | Not started | - |
 | 4. API Gateway + OpenAPI Docs | 0/TBD | Not started | - |
@@ -119,9 +139,10 @@
 
 ## Coverage
 
-- v1 requirements: 38 total
-- Mapped to phases: 38
+- v1 requirements: 43 total (+MQ-09, MQ-10 for Phase 01.1; see REQUIREMENTS.md)
+- Mapped to phases: 43
 - Orphaned: 0 ✓
 
 ---
 *Roadmap created: 2026-06-27*
+*Updated 2026-06-28: inserted Phase 01.1 (bidi at-least-once, ADR-001); +MQ-09/MQ-10.*

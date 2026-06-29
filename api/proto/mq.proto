@@ -24,6 +24,10 @@ message TelemetryMessage {
     string namespace   = 10;
     double value       = 11; // metric value (GPU utilization %, memory bytes, etc.)
     string labels_raw  = 12; // raw Prometheus label string
+    // Broker-assigned monotonic delivery ID (D-06, ADR-001).
+    // Set by MQServer on dequeue; zero from Streamer (ignored by broker; overwritten on assign).
+    // Field 13 keeps 1-byte encoding (fields 1-15 use varint tag with 1 byte; 16+ use 2 bytes).
+    uint64 id          = 13;
 }
 
 message ProduceRequest {
@@ -34,8 +38,24 @@ message ProduceResponse {
     bool accepted = 1; // true = enqueued (or drop-oldest fired); false only on validation error
 }
 
-// ConsumeRequest is intentionally minimal. consumer_id is optional; used only
-// for server-side logging to correlate which Collector instance holds a stream.
+// ConsumeClientMsg is streamed client→server on the bidi Consume RPC (D-03, ADR-001).
+//
+// First message from client (initial credit handshake):
+//   Credit > 0, ConsumerId set, AckId = 0.
+//   The broker will not send more than Credit messages without receiving acks.
+//
+// Subsequent messages from client (per-message acks):
+//   AckId > 0 (broker-assigned id from TelemetryMessage.id), Credit = 0, ConsumerId = "".
+//   Each ack replenishes one credit slot in the broker's per-consumer send window.
+message ConsumeClientMsg {
+    uint64 ack_id      = 1; // broker-assigned ID being acknowledged; 0 on initial credit message
+    int32  credit      = 2; // initial in-flight window size; meaningful only on the first message
+    string consumer_id = 3; // identifies this consumer instance (logging only; truncated to 64 bytes)
+}
+
+// ConsumeRequest is retained for backwards compatibility with existing generated-code references,
+// but is no longer used as the Consume RPC input (superseded by ConsumeClientMsg in ADR-001).
+// It will be removed in a future cleanup phase.
 message ConsumeRequest {
     string consumer_id = 1;
 }
@@ -45,8 +65,16 @@ service MQService {
     // Never blocks. Drop-oldest fires silently when the buffer is full.
     rpc Produce(ProduceRequest) returns (ProduceResponse);
 
-    // Consume opens a persistent server-side stream.
-    // Exactly one consumer receives each message (work-queue semantics).
-    // The stream remains open until the client disconnects or the server shuts down.
-    rpc Consume(ConsumeRequest) returns (stream TelemetryMessage);
+    // Consume is a bidirectional stream implementing broker-side at-least-once delivery
+    // (D-03, ADR-001). Server→client streams TelemetryMessage with broker-assigned id;
+    // client→server streams ConsumeClientMsg carrying initial credit then per-message acks.
+    //
+    // Protocol:
+    //   1. Client opens the stream and immediately sends one ConsumeClientMsg with Credit > 0.
+    //   2. Server sends up to Credit messages without waiting for acks (sliding window).
+    //   3. For each received message, client sends ConsumeClientMsg{AckId: msg.Id}.
+    //   4. Each ack replenishes one credit slot; broker sends the next available message.
+    //   5. On client disconnect, broker re-enqueues all unacked messages at the front of the
+    //      ring (best-effort ordering; duplicates are absorbed downstream by DB-04/COLL-05).
+    rpc Consume(stream ConsumeClientMsg) returns (stream TelemetryMessage);
 }

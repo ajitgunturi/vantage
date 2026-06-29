@@ -29,19 +29,23 @@ const (
 // WARNING: Field numbers are stable once deployed. Never renumber fields.
 // Adding new fields is backwards compatible; removing or renumbering is not.
 type TelemetryMessage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Timestamp     string                 `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                     // ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339)
-	MetricName    string                 `protobuf:"bytes,2,opt,name=metric_name,json=metricName,proto3" json:"metric_name,omitempty"` // e.g., "DCGM_FI_DEV_GPU_UTIL"
-	GpuId         string                 `protobuf:"bytes,3,opt,name=gpu_id,json=gpuId,proto3" json:"gpu_id,omitempty"`                // e.g., "0"
-	Device        string                 `protobuf:"bytes,4,opt,name=device,proto3" json:"device,omitempty"`                           // e.g., "nvidia0"
-	Uuid          string                 `protobuf:"bytes,5,opt,name=uuid,proto3" json:"uuid,omitempty"`                               // GPU UUID
-	ModelName     string                 `protobuf:"bytes,6,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`    // e.g., "NVIDIA H100 80GB HBM3"
-	Hostname      string                 `protobuf:"bytes,7,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	Container     string                 `protobuf:"bytes,8,opt,name=container,proto3" json:"container,omitempty"`
-	Pod           string                 `protobuf:"bytes,9,opt,name=pod,proto3" json:"pod,omitempty"`
-	Namespace     string                 `protobuf:"bytes,10,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Value         float64                `protobuf:"fixed64,11,opt,name=value,proto3" json:"value,omitempty"`                        // metric value (GPU utilization %, memory bytes, etc.)
-	LabelsRaw     string                 `protobuf:"bytes,12,opt,name=labels_raw,json=labelsRaw,proto3" json:"labels_raw,omitempty"` // raw Prometheus label string
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp  string                 `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                     // ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339)
+	MetricName string                 `protobuf:"bytes,2,opt,name=metric_name,json=metricName,proto3" json:"metric_name,omitempty"` // e.g., "DCGM_FI_DEV_GPU_UTIL"
+	GpuId      string                 `protobuf:"bytes,3,opt,name=gpu_id,json=gpuId,proto3" json:"gpu_id,omitempty"`                // e.g., "0"
+	Device     string                 `protobuf:"bytes,4,opt,name=device,proto3" json:"device,omitempty"`                           // e.g., "nvidia0"
+	Uuid       string                 `protobuf:"bytes,5,opt,name=uuid,proto3" json:"uuid,omitempty"`                               // GPU UUID
+	ModelName  string                 `protobuf:"bytes,6,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`    // e.g., "NVIDIA H100 80GB HBM3"
+	Hostname   string                 `protobuf:"bytes,7,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	Container  string                 `protobuf:"bytes,8,opt,name=container,proto3" json:"container,omitempty"`
+	Pod        string                 `protobuf:"bytes,9,opt,name=pod,proto3" json:"pod,omitempty"`
+	Namespace  string                 `protobuf:"bytes,10,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Value      float64                `protobuf:"fixed64,11,opt,name=value,proto3" json:"value,omitempty"`                        // metric value (GPU utilization %, memory bytes, etc.)
+	LabelsRaw  string                 `protobuf:"bytes,12,opt,name=labels_raw,json=labelsRaw,proto3" json:"labels_raw,omitempty"` // raw Prometheus label string
+	// Broker-assigned monotonic delivery ID (D-06, ADR-001).
+	// Set by MQServer on dequeue; zero from Streamer (ignored by broker; overwritten on assign).
+	// Field 13 keeps 1-byte encoding (fields 1-15 use varint tag with 1 byte; 16+ use 2 bytes).
+	Id            uint64 `protobuf:"varint,13,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -160,6 +164,13 @@ func (x *TelemetryMessage) GetLabelsRaw() string {
 	return ""
 }
 
+func (x *TelemetryMessage) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
 type ProduceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Message       *TelemetryMessage      `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
@@ -248,8 +259,80 @@ func (x *ProduceResponse) GetAccepted() bool {
 	return false
 }
 
-// ConsumeRequest is intentionally minimal. consumer_id is optional; used only
-// for server-side logging to correlate which Collector instance holds a stream.
+// ConsumeClientMsg is streamed client→server on the bidi Consume RPC (D-03, ADR-001).
+//
+// First message from client (initial credit handshake):
+//
+//	Credit > 0, ConsumerId set, AckId = 0.
+//	The broker will not send more than Credit messages without receiving acks.
+//
+// Subsequent messages from client (per-message acks):
+//
+//	AckId > 0 (broker-assigned id from TelemetryMessage.id), Credit = 0, ConsumerId = "".
+//	Each ack replenishes one credit slot in the broker's per-consumer send window.
+type ConsumeClientMsg struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AckId         uint64                 `protobuf:"varint,1,opt,name=ack_id,json=ackId,proto3" json:"ack_id,omitempty"`               // broker-assigned ID being acknowledged; 0 on initial credit message
+	Credit        int32                  `protobuf:"varint,2,opt,name=credit,proto3" json:"credit,omitempty"`                          // initial in-flight window size; meaningful only on the first message
+	ConsumerId    string                 `protobuf:"bytes,3,opt,name=consumer_id,json=consumerId,proto3" json:"consumer_id,omitempty"` // identifies this consumer instance (logging only; truncated to 64 bytes)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsumeClientMsg) Reset() {
+	*x = ConsumeClientMsg{}
+	mi := &file_mq_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsumeClientMsg) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsumeClientMsg) ProtoMessage() {}
+
+func (x *ConsumeClientMsg) ProtoReflect() protoreflect.Message {
+	mi := &file_mq_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsumeClientMsg.ProtoReflect.Descriptor instead.
+func (*ConsumeClientMsg) Descriptor() ([]byte, []int) {
+	return file_mq_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ConsumeClientMsg) GetAckId() uint64 {
+	if x != nil {
+		return x.AckId
+	}
+	return 0
+}
+
+func (x *ConsumeClientMsg) GetCredit() int32 {
+	if x != nil {
+		return x.Credit
+	}
+	return 0
+}
+
+func (x *ConsumeClientMsg) GetConsumerId() string {
+	if x != nil {
+		return x.ConsumerId
+	}
+	return ""
+}
+
+// ConsumeRequest is retained for backwards compatibility with existing generated-code references,
+// but is no longer used as the Consume RPC input (superseded by ConsumeClientMsg in ADR-001).
+// It will be removed in a future cleanup phase.
 type ConsumeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ConsumerId    string                 `protobuf:"bytes,1,opt,name=consumer_id,json=consumerId,proto3" json:"consumer_id,omitempty"`
@@ -259,7 +342,7 @@ type ConsumeRequest struct {
 
 func (x *ConsumeRequest) Reset() {
 	*x = ConsumeRequest{}
-	mi := &file_mq_proto_msgTypes[3]
+	mi := &file_mq_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -271,7 +354,7 @@ func (x *ConsumeRequest) String() string {
 func (*ConsumeRequest) ProtoMessage() {}
 
 func (x *ConsumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mq_proto_msgTypes[3]
+	mi := &file_mq_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -284,7 +367,7 @@ func (x *ConsumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsumeRequest.ProtoReflect.Descriptor instead.
 func (*ConsumeRequest) Descriptor() ([]byte, []int) {
-	return file_mq_proto_rawDescGZIP(), []int{3}
+	return file_mq_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ConsumeRequest) GetConsumerId() string {
@@ -298,7 +381,7 @@ var File_mq_proto protoreflect.FileDescriptor
 
 const file_mq_proto_rawDesc = "" +
 	"\n" +
-	"\bmq.proto\x12\x05mq.v1\"\xd2\x02\n" +
+	"\bmq.proto\x12\x05mq.v1\"\xe2\x02\n" +
 	"\x10TelemetryMessage\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\tR\ttimestamp\x12\x1f\n" +
 	"\vmetric_name\x18\x02 \x01(\tR\n" +
@@ -315,17 +398,23 @@ const file_mq_proto_rawDesc = "" +
 	" \x01(\tR\tnamespace\x12\x14\n" +
 	"\x05value\x18\v \x01(\x01R\x05value\x12\x1d\n" +
 	"\n" +
-	"labels_raw\x18\f \x01(\tR\tlabelsRaw\"C\n" +
+	"labels_raw\x18\f \x01(\tR\tlabelsRaw\x12\x0e\n" +
+	"\x02id\x18\r \x01(\x04R\x02id\"C\n" +
 	"\x0eProduceRequest\x121\n" +
 	"\amessage\x18\x01 \x01(\v2\x17.mq.v1.TelemetryMessageR\amessage\"-\n" +
 	"\x0fProduceResponse\x12\x1a\n" +
-	"\baccepted\x18\x01 \x01(\bR\baccepted\"1\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\"b\n" +
+	"\x10ConsumeClientMsg\x12\x15\n" +
+	"\x06ack_id\x18\x01 \x01(\x04R\x05ackId\x12\x16\n" +
+	"\x06credit\x18\x02 \x01(\x05R\x06credit\x12\x1f\n" +
+	"\vconsumer_id\x18\x03 \x01(\tR\n" +
+	"consumerId\"1\n" +
 	"\x0eConsumeRequest\x12\x1f\n" +
 	"\vconsumer_id\x18\x01 \x01(\tR\n" +
-	"consumerId2\x82\x01\n" +
+	"consumerId2\x86\x01\n" +
 	"\tMQService\x128\n" +
-	"\aProduce\x12\x15.mq.v1.ProduceRequest\x1a\x16.mq.v1.ProduceResponse\x12;\n" +
-	"\aConsume\x12\x15.mq.v1.ConsumeRequest\x1a\x17.mq.v1.TelemetryMessage0\x01B!Z\x1fgithub.com/ajitg/vantage/pkg/pbb\x06proto3"
+	"\aProduce\x12\x15.mq.v1.ProduceRequest\x1a\x16.mq.v1.ProduceResponse\x12?\n" +
+	"\aConsume\x12\x17.mq.v1.ConsumeClientMsg\x1a\x17.mq.v1.TelemetryMessage(\x010\x01B!Z\x1fgithub.com/ajitg/vantage/pkg/pbb\x06proto3"
 
 var (
 	file_mq_proto_rawDescOnce sync.Once
@@ -339,17 +428,18 @@ func file_mq_proto_rawDescGZIP() []byte {
 	return file_mq_proto_rawDescData
 }
 
-var file_mq_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_mq_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_mq_proto_goTypes = []any{
 	(*TelemetryMessage)(nil), // 0: mq.v1.TelemetryMessage
 	(*ProduceRequest)(nil),   // 1: mq.v1.ProduceRequest
 	(*ProduceResponse)(nil),  // 2: mq.v1.ProduceResponse
-	(*ConsumeRequest)(nil),   // 3: mq.v1.ConsumeRequest
+	(*ConsumeClientMsg)(nil), // 3: mq.v1.ConsumeClientMsg
+	(*ConsumeRequest)(nil),   // 4: mq.v1.ConsumeRequest
 }
 var file_mq_proto_depIdxs = []int32{
 	0, // 0: mq.v1.ProduceRequest.message:type_name -> mq.v1.TelemetryMessage
 	1, // 1: mq.v1.MQService.Produce:input_type -> mq.v1.ProduceRequest
-	3, // 2: mq.v1.MQService.Consume:input_type -> mq.v1.ConsumeRequest
+	3, // 2: mq.v1.MQService.Consume:input_type -> mq.v1.ConsumeClientMsg
 	2, // 3: mq.v1.MQService.Produce:output_type -> mq.v1.ProduceResponse
 	0, // 4: mq.v1.MQService.Consume:output_type -> mq.v1.TelemetryMessage
 	3, // [3:5] is the sub-list for method output_type
@@ -370,7 +460,7 @@ func file_mq_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mq_proto_rawDesc), len(file_mq_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

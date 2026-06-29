@@ -30,10 +30,18 @@ type MQServiceClient interface {
 	// Produce enqueues a single telemetry message.
 	// Never blocks. Drop-oldest fires silently when the buffer is full.
 	Produce(ctx context.Context, in *ProduceRequest, opts ...grpc.CallOption) (*ProduceResponse, error)
-	// Consume opens a persistent server-side stream.
-	// Exactly one consumer receives each message (work-queue semantics).
-	// The stream remains open until the client disconnects or the server shuts down.
-	Consume(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TelemetryMessage], error)
+	// Consume is a bidirectional stream implementing broker-side at-least-once delivery
+	// (D-03, ADR-001). Server→client streams TelemetryMessage with broker-assigned id;
+	// client→server streams ConsumeClientMsg carrying initial credit then per-message acks.
+	//
+	// Protocol:
+	//  1. Client opens the stream and immediately sends one ConsumeClientMsg with Credit > 0.
+	//  2. Server sends up to Credit messages without waiting for acks (sliding window).
+	//  3. For each received message, client sends ConsumeClientMsg{AckId: msg.Id}.
+	//  4. Each ack replenishes one credit slot; broker sends the next available message.
+	//  5. On client disconnect, broker re-enqueues all unacked messages at the front of the
+	//     ring (best-effort ordering; duplicates are absorbed downstream by DB-04/COLL-05).
+	Consume(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsumeClientMsg, TelemetryMessage], error)
 }
 
 type mQServiceClient struct {
@@ -54,24 +62,18 @@ func (c *mQServiceClient) Produce(ctx context.Context, in *ProduceRequest, opts 
 	return out, nil
 }
 
-func (c *mQServiceClient) Consume(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TelemetryMessage], error) {
+func (c *mQServiceClient) Consume(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsumeClientMsg, TelemetryMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MQService_ServiceDesc.Streams[0], MQService_Consume_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[ConsumeRequest, TelemetryMessage]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
+	x := &grpc.GenericClientStream[ConsumeClientMsg, TelemetryMessage]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MQService_ConsumeClient = grpc.ServerStreamingClient[TelemetryMessage]
+type MQService_ConsumeClient = grpc.BidiStreamingClient[ConsumeClientMsg, TelemetryMessage]
 
 // MQServiceServer is the server API for MQService service.
 // All implementations must embed UnimplementedMQServiceServer
@@ -80,10 +82,18 @@ type MQServiceServer interface {
 	// Produce enqueues a single telemetry message.
 	// Never blocks. Drop-oldest fires silently when the buffer is full.
 	Produce(context.Context, *ProduceRequest) (*ProduceResponse, error)
-	// Consume opens a persistent server-side stream.
-	// Exactly one consumer receives each message (work-queue semantics).
-	// The stream remains open until the client disconnects or the server shuts down.
-	Consume(*ConsumeRequest, grpc.ServerStreamingServer[TelemetryMessage]) error
+	// Consume is a bidirectional stream implementing broker-side at-least-once delivery
+	// (D-03, ADR-001). Server→client streams TelemetryMessage with broker-assigned id;
+	// client→server streams ConsumeClientMsg carrying initial credit then per-message acks.
+	//
+	// Protocol:
+	//  1. Client opens the stream and immediately sends one ConsumeClientMsg with Credit > 0.
+	//  2. Server sends up to Credit messages without waiting for acks (sliding window).
+	//  3. For each received message, client sends ConsumeClientMsg{AckId: msg.Id}.
+	//  4. Each ack replenishes one credit slot; broker sends the next available message.
+	//  5. On client disconnect, broker re-enqueues all unacked messages at the front of the
+	//     ring (best-effort ordering; duplicates are absorbed downstream by DB-04/COLL-05).
+	Consume(grpc.BidiStreamingServer[ConsumeClientMsg, TelemetryMessage]) error
 	mustEmbedUnimplementedMQServiceServer()
 }
 
@@ -97,7 +107,7 @@ type UnimplementedMQServiceServer struct{}
 func (UnimplementedMQServiceServer) Produce(context.Context, *ProduceRequest) (*ProduceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Produce not implemented")
 }
-func (UnimplementedMQServiceServer) Consume(*ConsumeRequest, grpc.ServerStreamingServer[TelemetryMessage]) error {
+func (UnimplementedMQServiceServer) Consume(grpc.BidiStreamingServer[ConsumeClientMsg, TelemetryMessage]) error {
 	return status.Error(codes.Unimplemented, "method Consume not implemented")
 }
 func (UnimplementedMQServiceServer) mustEmbedUnimplementedMQServiceServer() {}
@@ -140,15 +150,11 @@ func _MQService_Produce_Handler(srv interface{}, ctx context.Context, dec func(i
 }
 
 func _MQService_Consume_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(ConsumeRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(MQServiceServer).Consume(m, &grpc.GenericServerStream[ConsumeRequest, TelemetryMessage]{ServerStream: stream})
+	return srv.(MQServiceServer).Consume(&grpc.GenericServerStream[ConsumeClientMsg, TelemetryMessage]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MQService_ConsumeServer = grpc.ServerStreamingServer[TelemetryMessage]
+type MQService_ConsumeServer = grpc.BidiStreamingServer[ConsumeClientMsg, TelemetryMessage]
 
 // MQService_ServiceDesc is the grpc.ServiceDesc for MQService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -167,6 +173,7 @@ var MQService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Consume",
 			Handler:       _MQService_Consume_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "mq.proto",
