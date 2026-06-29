@@ -105,7 +105,10 @@ Plans:
   2. `GET /api/v1/gpus/{id}/telemetry` returns that GPU's telemetry ordered by time, and the `?start_time=&end_time=` variant filters by time window (using the composite index).
   3. `swag init` regenerates a valid OpenAPI spec entirely from code annotations (no hand-written spec) and serves it via Swagger UI.
 
-**Plans**: TBD
+**Plans**: 3 plans (3 waves)
+- [ ] 04-01-PLAN.md — Gateway foundation + GPU-list slice (API-01) [wave 1]
+- [ ] 04-02-PLAN.md — Telemetry endpoint + time window + composite-index proof (API-02, API-03) [wave 2]
+- [ ] 04-03-PLAN.md — OpenAPI generation + composition root + coverage gate + smoke/README (API-04) [wave 3]
 
 ### Phase 5: DevOps + Quality Gates
 
