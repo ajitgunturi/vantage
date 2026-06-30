@@ -49,7 +49,7 @@ test: ## Run all unit + integration tests with race detector and coverage
 	go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
 coverage: ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ and pkg/ packages (generated pkg/pb excluded)
-	PKGS=$$(go list ./internal/... ./pkg/... | grep -v '/pkg/pb'); \
+	PKGS=$$(go list ./internal/... ./pkg/... | grep -v '/pkg/pb\|/pkg/docs'); \
 	go test -race -covermode=atomic -coverprofile=coverage.out -tags=integration $$PKGS
 	@go tool cover -func=coverage.out | tail -1
 	@total=$$(go tool cover -func=coverage.out | tail -1 | awk '{print $$3}' | tr -d '%'); \

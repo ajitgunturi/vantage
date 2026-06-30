@@ -6,16 +6,32 @@
 package gateway_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ajitg/vantage/internal/gateway"
 )
+
+// brokenPool returns a non-nil *pgxpool.Pool that will fail any query because
+// it points at an unreachable address (port 19999, nothing listening).
+// pgxpool.New is lazy — it does not connect at construction time — so this
+// returns a valid, non-nil pool. Queries issued against it will fail with a
+// connection-refused error, exercising the DB-error return paths in handlers.
+func brokenPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(),
+		"postgres://bad:bad@localhost:19999/none?sslmode=disable&connect_timeout=1")
+	require.NoError(t, err, "pgxpool.New must not fail (lazy connect)")
+	t.Cleanup(pool.Close)
+	return pool
+}
 
 // TestNewRouter_RouteRegistration asserts that NewRouter registers
 // GET /api/v1/gpus and that the route returns a Content-Type of
@@ -115,6 +131,47 @@ func TestGetTelemetry_BadEndTime_Unit(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, w.Code,
 		"malformed end_time must return 400 Bad Request")
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
+
+	var errResp gateway.ErrorResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&errResp))
+	assert.NotEmpty(t, errResp.Error)
+}
+
+// TestListGPUs_DBError_Unit exercises the "failed to query GPU IDs" 500 path
+// by providing a non-nil but unreachable pool (brokenPool). The handler must
+// return application/json 500 instead of panicking or returning text/plain.
+func TestListGPUs_DBError_Unit(t *testing.T) {
+	cfg := gateway.Config{Addr: ":8080", MaxRows: 1000}
+	router := gateway.NewRouter(brokenPool(t), cfg)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/gpus", nil)
+	router.ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code,
+		"DB error in ListGPUs must return 500")
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json",
+		"error response must be application/json")
+
+	var errResp gateway.ErrorResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&errResp))
+	assert.NotEmpty(t, errResp.Error)
+}
+
+// TestGetTelemetry_DBError_Unit exercises the "failed to check GPU" 500 path
+// (from the db.GPUExists call) by providing a non-nil but unreachable pool.
+// Time params are omitted so the handler reaches the pool-access code.
+func TestGetTelemetry_DBError_Unit(t *testing.T) {
+	cfg := gateway.Config{Addr: ":8080", MaxRows: 1000}
+	router := gateway.NewRouter(brokenPool(t), cfg)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/gpus/GPU-test/telemetry", nil)
+	router.ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code,
+		"DB error in GetTelemetry (GPUExists) must return 500")
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 
 	var errResp gateway.ErrorResponse
