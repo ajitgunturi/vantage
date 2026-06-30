@@ -20,7 +20,7 @@ help: ## List targets
 tools: ## Install dev tools (protoc plugins, swag, golangci-lint, kind)
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	go install github.com/swaggo/swag/cmd/swag@latest
+	go install github.com/swaggo/swag/cmd/swag@v1.16.4
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install sigs.k8s.io/kind@latest
 

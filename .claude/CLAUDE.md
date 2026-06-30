@@ -40,14 +40,14 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | google.golang.org/protobuf | v1.36.11 | Protobuf v3 runtime / generated code | Replaces the deprecated `github.com/golang/protobuf`. v1.36.11 is Dec 2025; fixes a JSON unmarshaling CVE present in <v1.33. |
 | github.com/jackc/pgx/v5 | v5.10.0 | PostgreSQL driver + connection pool (pgxpool) | De-facto standard; v5 rewrote pgxpool for correct concurrency. pgx.CopyFrom uses the PostgreSQL COPY protocol — the fastest bulk-insert path, 5-10x faster than multi-row INSERT at scale. |
 | github.com/go-chi/chi/v5 | v5.3.0 | HTTP router for API Gateway + MQ control plane | 100% net/http compatible — uses `http.Handler`/`http.ResponseWriter`/`*http.Request` with no custom context type. Supports path variables (`{id}`) needed for `/gpus/{id}/telemetry`. Zero external dependencies. |
-| github.com/swaggo/swag | v1.16.6 | OpenAPI spec generation from code annotations | Stable release (Jul 2025). The spec mandates fully auto-generated docs from annotations; swag init parses `// @Param`, `// @Success`, etc. and emits `docs/swagger.json`. Use v1.16.6, NOT v2.0.0-rc5 (RC, not stable). |
+| github.com/swaggo/swag | v1.16.4 | OpenAPI spec generation from code annotations | The spec mandates fully auto-generated docs from annotations; swag init parses `// @Param`, `// @Success`, etc. and emits `docs/swagger.json`. Use v1.16.x, NOT v2.0.0-rc5 (RC, not stable). Pinned at v1.16.4 in go.mod (Phase 4: the generated `pkg/docs` imports the swag runtime; CLI and library kept in lockstep). |
 | bufbuild/buf | v1.71.0 | Protobuf toolchain (linting, code gen, breaking-change detection) | Replaces raw `protoc` + manual plugin management. `buf generate` with remote BSR plugins eliminates local plugin installs; buf lint enforces proto style; buf breaking protects API contracts. |
 
 ### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| github.com/swaggo/http-swagger/v2 | v2.0.2 | Embeds Swagger UI as an HTTP handler | Add to the API Gateway at `/swagger/*` to serve live docs alongside the API. Pairs with swag v1.16.6. |
+| github.com/swaggo/http-swagger/v2 | v2.0.2 | Embeds Swagger UI as an HTTP handler | Add to the API Gateway at `/swagger/*` to serve live docs alongside the API. Pairs with swag v1.16.4. |
 | github.com/stretchr/testify | v1.11.1 | Test assertions and suite helpers | Every package. Use `assert` for non-fatal and `require` for fatal assertions. Use `testify/mock` only if behavior verification is needed; prefer stub structs for interface fakes. |
 | github.com/testcontainers/testcontainers-go | v0.43.0 | Spin up real Docker containers in tests | Collector and db integration tests only. Starts a real `postgres:17-alpine` container per test package via `TestMain`; pgxpool connects to its `ConnectionString()`. |
 | github.com/testcontainers/testcontainers-go/modules/postgres | v0.43.0 | Postgres-specific helpers for testcontainers | Same version as parent module. Provides `postgres.Run(ctx, image, postgres.WithDatabase(...), postgres.BasicWaitStrategies())` and `Snapshot()`/`Restore()` for cheap test isolation. |
@@ -61,7 +61,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | Tool | Purpose | Notes |
 |------|---------|-------|
 | buf CLI v1.71.0 | Proto linting, code generation, breaking-change detection | `brew install bufbuild/buf/buf` or `go install github.com/bufbuild/buf/cmd/buf@v1.71.0`. Run `buf lint` in CI; `buf breaking --against '.git#branch=main'` to prevent accidental API breaks. |
-| swag CLI v1.16.6 | Generate docs/ from gateway annotations | `go install github.com/swaggo/swag/cmd/swag@v1.16.6`. Add `make swagger` target: `swag init -g cmd/gateway/main.go --output docs/`. |
+| swag CLI v1.16.4 | Generate docs/ from gateway annotations | `go install github.com/swaggo/swag/cmd/swag@v1.16.4`. Add `make swagger` target: `swag init -g cmd/gateway/main.go --output docs/`. |
 | kind (latest) | Local Kubernetes cluster | `go install sigs.k8s.io/kind@latest`. Single-node cluster; load images with `kind load docker-image`. No VM required — runs clusters in Docker containers. |
 | Helm v3 | Package manager for Kubernetes manifests | Used to deploy all four services + PostgreSQL sub-charts under `deployments/`. |
 | Bitnami PostgreSQL chart | Helm chart for PostgreSQL in-cluster | Chart version 18.7.8. Pull via OCI: `helm install postgres oci://registry-1.docker.io/bitnamicharts/postgresql`. OCI pull works without the Bitnami repo (avoids the Aug 2025 commercial-access restriction). |
@@ -82,7 +82,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | HTTP router (Gateway) | chi/v5 v5.3.0 | gin v1 | Gin uses its own `*gin.Context` type, breaking compatibility with standard `http.Handler` middleware. Chi is idiomatic Go — any net/http middleware works without adaptation. |
 | HTTP router (MQ control plane) | net/http ServeMux | chi | MQ has exactly one HTTP endpoint (`GET /api/v1/queue/inspect`). No path variables, no middleware chain needed. ServeMux is zero-dependency and sufficient. |
 | PostgreSQL bulk insert | pgxpool.CopyFrom | pgx.Batch / SendBatch | CopyFrom uses PostgreSQL COPY protocol — the fastest available path, 5-10x faster at volume. pgx.Batch/SendBatch is for mixed-operation batches or when partial failure per-row matters. |
-| OpenAPI generation | swag v1.16.6 | swag v2.0.0-rc5 | v2 is a release candidate (last: RC5, Jan 2026); not suitable for a production codebase. Revisit when v2.0.0 stable ships. |
+| OpenAPI generation | swag v1.16.4 | swag v2.0.0-rc5 | v2 is a release candidate (last: RC5, Jan 2026); not suitable for a production codebase. Revisit when v2.0.0 stable ships. |
 | Integration testing | testcontainers-go | dockertest | testcontainers-go is more actively maintained, has first-class Postgres module with Snapshot/Restore, and the API is cleaner. |
 | Base image (final stage) | distroless/static-debian12 | alpine | Go binaries compile statically by default (CGO_ENABLED=0). Distroless drops shell, package manager, and libc — significantly smaller attack surface than alpine. Use alpine in builder stage only. |
 | Local k8s | kind | minikube | kind runs clusters inside Docker with no hypervisor. Faster to start, easier to script in CI, simpler image loading. |
@@ -94,7 +94,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | Kafka / NATS / RabbitMQ / Redis Streams | Explicitly out of scope per spec; the MQ is the assignment artifact — using a broker nullifies it | Custom in-memory MQ with Go channels + sync.RWMutex behind gRPC |
 | github.com/golang/protobuf | Deprecated; replaced by google.golang.org/protobuf. Still appears in old tutorials and transitively required by some packages, but do not import it directly | google.golang.org/protobuf v1.36.11 |
 | pgx v4 (github.com/jackc/pgx/v4) | v5 has breaking API changes and a redesigned pgxpool; mixing v4 and v5 in the same module causes type conflicts | jackc/pgx/v5 v5.10.0 |
-| swag v2.0.0-rc5 | Release candidate; OpenAPI 3.1.0 support is not yet stable. Breaking changes possible before final release | swag v1.16.6 (produces Swagger 2.0 / OpenAPI 2.0 — fully sufficient for the spec requirement) |
+| swag v2.0.0-rc5 | Release candidate; OpenAPI 3.1.0 support is not yet stable. Breaking changes possible before final release | swag v1.16.4 (produces Swagger 2.0 / OpenAPI 2.0 — fully sufficient for the spec requirement) |
 | gin | Custom context type breaks standard middleware ecosystem; over-engineered for lightweight microservices | chi/v5 for the gateway; net/http for the MQ control plane |
 | Alpine as final Docker image | Alpine uses musl libc; even though Go binaries are statically linked with CGO_ENABLED=0, any CGO dependency would break silently. Alpine is also larger and has more CVE surface than distroless. | gcr.io/distroless/static-debian12 for final stage; golang:1.26-alpine as builder stage |
 | go:embed for proto files | Proto files are compile-time artifacts; embedding them in binaries serves no runtime purpose | Generate code into pkg/pb/ at build time via `make proto` |
@@ -126,7 +126,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
 | google.golang.org/grpc@v1.81.1 | google.golang.org/protobuf@v1.36.11 | grpc-go depends on protobuf; go mod tidy resolves; do not mix with github.com/golang/protobuf |
-| github.com/swaggo/swag@v1.16.6 | github.com/swaggo/http-swagger/v2@v2.0.2 | swag v1 + http-swagger/v2 is the supported pairing; http-swagger/v2 added support for newer Swagger UI versions |
+| github.com/swaggo/swag@v1.16.4 | github.com/swaggo/http-swagger/v2@v2.0.2 | swag v1 + http-swagger/v2 is the supported pairing; http-swagger/v2 added support for newer Swagger UI versions |
 | github.com/testcontainers/testcontainers-go@v0.43.0 | testcontainers-go/modules/postgres@v0.43.0 | Always pin both to the same version — the modules/postgres package is part of the same release cycle |
 | github.com/jackc/pgx/v5@v5.10.0 | testcontainers-go postgres@v0.43.0 | testcontainers-go returns a connection string; feed it to pgxpool.New() directly |
 | buf.build/protocolbuffers/go:v1.36.11 | buf.build/grpc/go:v1.6.2 | Remote BSR plugins are versioned independently of the local Go libraries; versions match their local equivalents |
@@ -136,7 +136,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 - pkg.go.dev/google.golang.org/grpc — verified v1.81.1, published May 13, 2026 (MEDIUM confidence)
 - pkg.go.dev/github.com/jackc/pgx/v5 — verified v5.10.0, published Jun 3, 2026 (MEDIUM confidence)
 - pkg.go.dev/github.com/go-chi/chi/v5 — verified v5.3.0, published May 22, 2026 (MEDIUM confidence)
-- pkg.go.dev/github.com/swaggo/swag — v1.16.6 stable Jul 2025; v2.0.0-rc5 Jan 2026 is RC only (MEDIUM confidence)
+- pkg.go.dev/github.com/swaggo/swag — v1.16.4 stable Jul 2025; v2.0.0-rc5 Jan 2026 is RC only (MEDIUM confidence)
 - pkg.go.dev/github.com/testcontainers/testcontainers-go — verified v0.43.0, published Jun 19, 2026 (MEDIUM confidence)
 - pkg.go.dev/github.com/stretchr/testify — verified v1.11.1, published Aug 27, 2025 (MEDIUM confidence)
 - github.com/bufbuild/buf/releases — verified v1.71.0, published Jun 16, 2026 (MEDIUM confidence)
