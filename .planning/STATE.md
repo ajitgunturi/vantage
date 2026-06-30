@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03
-current_phase_name: pipeline-streamer-collector-integration
-status: verified
-stopped_at: Phase 03 verification complete — 17/17 must-haves VERIFIED
-last_updated: "2026-06-29T17:45:00Z"
+current_phase: 5
+current_phase_name: DevOps + Quality Gates
+status: planning
+stopped_at: Completed 03-03-PLAN.md (Collector microservice)
+last_updated: "2026-06-30T16:56:07.721Z"
 progress:
   total_phases: 7
-  completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
-  percent: 57
+  completed_phases: 5
+  total_plans: 18
+  completed_plans: 18
+  percent: 71
 ---
 
 # Project State: vantage
@@ -21,14 +21,14 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 03 — pipeline-streamer-collector-integration
+- **Current focus:** Phase 04 — api-gateway-openapi-docs
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 03 (pipeline-streamer-collector-integration) — EXECUTING
-- **Plan:** 4 of 4
-- **Status:** Phase complete — ready for verification
+- **Phase:** 5 — DevOps + Quality Gates
+- **Plan:** Not started
+- **Status:** Ready to plan
 - **Progress:** [██████████] 100%
 
 ```
@@ -70,7 +70,7 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-29T12:06:47.038Z
+**Last session:** 2026-06-30T15:54:26.690Z
 **Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
 **Resume file:** None
 
@@ -96,6 +96,9 @@ progress:
 | Phase 03 P02 | 269s | 3 tasks | 5 files |
 | Phase 03-pipeline-streamer-collector-integration P03 | 27 | 2 tasks | 6 files |
 | Phase 03-pipeline-streamer-collector-integration P04 | 675 | 2 tasks | 3 files |
+| Phase 04 P01 | 356 | 2 tasks | 9 files |
+| Phase 04 P02 | 558 | 2 tasks | 6 files |
+| Phase 04 P03 | 636 | 3 tasks | 11 files |
 
 ## Decisions
 
@@ -122,3 +125,7 @@ progress:
 - [Phase ?]: grpcSrv.Stop() not GracefulStop in tests — GracefulStop blocks ~30s drain interval, Stop() immediately RSTs connections
 - [Phase ?]: ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING — Collector idempotency absorbs MQ at-least-once redeliveries without in-memory dedup state
 - [Phase ?]: E2E test: G=10 GPU UUIDs x M=20 metric names = 200 rows for restamp-collision robustness
+- [Phase 04]: Plan 04-01: gateway.Config.MaxRows = VANTAGE_GATEWAY_MAX_ROWS (default 1000) as safety ceiling; nil pool guard in ListGPUs ensures JSON Content-Type invariant
+- [Phase 04]: Plan 04-02: two-query approach in db.Telemetry — separate simple/windowed SQL paths keep idx_gpu_metrics_gpu_id_ts index use clean; COALESCE on nullable text cols avoids *string scan panics
+- [Phase 04]: Plan 04-02: GPUExists (SELECT EXISTS) before Telemetry call separates 404 (unknown GPU) from 200-[] (known GPU, empty window) per OQ-2
+- [Phase ?]: swag runtime version mismatch

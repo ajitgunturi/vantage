@@ -20,7 +20,7 @@ help: ## List targets
 tools: ## Install dev tools (protoc plugins, swag, golangci-lint, kind)
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	go install github.com/swaggo/swag/cmd/swag@latest
+	go install github.com/swaggo/swag/cmd/swag@v1.16.4
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install sigs.k8s.io/kind@latest
 
@@ -49,7 +49,7 @@ test: ## Run all unit + integration tests with race detector and coverage
 	go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
 coverage: ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ and pkg/ packages (generated pkg/pb excluded)
-	PKGS=$$(go list ./internal/... ./pkg/... | grep -v '/pkg/pb'); \
+	PKGS=$$(go list ./internal/... ./pkg/... | grep -v '/pkg/pb\|/pkg/docs'); \
 	go test -race -covermode=atomic -coverprofile=coverage.out -tags=integration $$PKGS
 	@go tool cover -func=coverage.out | tail -1
 	@total=$$(go tool cover -func=coverage.out | tail -1 | awk '{print $$3}' | tr -d '%'); \

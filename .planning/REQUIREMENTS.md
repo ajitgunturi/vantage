@@ -52,10 +52,10 @@
 
 ### API Gateway (API)
 
-- [ ] **API-01**: `GET /api/v1/gpus` returns the unique list of GPU IDs
-- [ ] **API-02**: `GET /api/v1/gpus/{id}/telemetry` returns that GPU's telemetry ordered by time
-- [ ] **API-03**: `GET /api/v1/gpus/{id}/telemetry?start_time=&end_time=` filters by time window
-- [ ] **API-04**: OpenAPI spec fully auto-generated from `swag` code annotations (no hand-written spec)
+- [x] **API-01**: `GET /api/v1/gpus` returns the unique list of GPU IDs
+- [x] **API-02**: `GET /api/v1/gpus/{id}/telemetry` returns that GPU's telemetry ordered by time
+- [x] **API-03**: `GET /api/v1/gpus/{id}/telemetry?start_time=&end_time=` filters by time window
+- [x] **API-04**: OpenAPI spec fully auto-generated from `swag` code annotations (no hand-written spec)
 
 ### DevOps / Deployment (OPS)
 
@@ -141,10 +141,10 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | COLL-04 | Phase 3 | Complete |
 | COLL-05 | Phase 3 | Complete |
 | QA-03 | Phase 3 | Complete |
-| API-01 | Phase 4 | Pending |
-| API-02 | Phase 4 | Pending |
-| API-03 | Phase 4 | Pending |
-| API-04 | Phase 4 | Pending |
+| API-01 | Phase 4 | Complete |
+| API-02 | Phase 4 | Complete |
+| API-03 | Phase 4 | Complete |
+| API-04 | Phase 4 | Complete |
 | OPS-01 | Phase 5 | Pending |
 | OPS-02 | Phase 5 | Pending |
 | OPS-03 | Phase 5 | Pending |

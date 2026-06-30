@@ -10,7 +10,7 @@
 - [x] **Phase 1: Foundation — Proto Contract + MQ Core** - Race-safe in-memory MQ over gRPC + HTTP, exactly-once-to-one-consumer delivery (completed 2026-06-27)
 - [x] **Phase 2: Storage Foundation — Schema + Connection Pool** - Time-series PostgreSQL schema with an EXPLAIN-verified composite index, shared via pgxpool (completed 2026-06-29)
 - [x] **Phase 3: Pipeline — Streamer + Collector + Integration** - Live CSV telemetry flowing end-to-end into PostgreSQL under concurrency (completed 2026-06-29)
-- [ ] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry
+- [x] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry (completed 2026-06-30)
 - [ ] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar
 - [ ] **Phase 6: MQ Durability — Opt-in WAL Persistence** - Crash-durable broker mode behind the Store interface; at-least-once via replay
 
@@ -105,7 +105,11 @@ Plans:
   2. `GET /api/v1/gpus/{id}/telemetry` returns that GPU's telemetry ordered by time, and the `?start_time=&end_time=` variant filters by time window (using the composite index).
   3. `swag init` regenerates a valid OpenAPI spec entirely from code annotations (no hand-written spec) and serves it via Swagger UI.
 
-**Plans**: TBD
+**Plans**: 3/3 plans complete
+
+- [x] 04-01-PLAN.md — Gateway foundation + GPU-list slice (API-01) [wave 1]
+- [x] 04-02-PLAN.md — Telemetry endpoint + time window + composite-index proof (API-02, API-03) [wave 2]
+- [x] 04-03-PLAN.md — OpenAPI generation + composition root + coverage gate + smoke/README (API-04) [wave 3]
 
 ### Phase 5: DevOps + Quality Gates
 
@@ -143,7 +147,7 @@ Plans:
 | 01.1 MQ At-Least-Once — Bidi Consume + Ack (INSERTED) | 6/6 | Complete    | 2026-06-28 |
 | 2. Storage Foundation — Schema + Connection Pool | 2/2 | Complete   | 2026-06-29 |
 | 3. Pipeline — Streamer + Collector + Integration | 4/4 | Complete   | 2026-06-29 |
-| 4. API Gateway + OpenAPI Docs | 0/TBD | Not started | - |
+| 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
 | 5. DevOps + Quality Gates | 0/TBD | Not started | - |
 | 6. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
 
