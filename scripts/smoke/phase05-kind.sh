@@ -65,7 +65,7 @@ done
 pass "all four service Deployments Available"
 
 # ── Step 4: port-forward gateway to local ${LOCAL_PORT} ──────────────────────
-kubectl port-forward "svc/${RELEASE}-gateway" 8081:8080 >/dev/null 2>&1 &
+kubectl port-forward "svc/${RELEASE}-gateway" "${LOCAL_PORT}:8080" >/dev/null 2>&1 &
 PF_PID=$!
 sleep 2  # allow the port-forward to bind
 
