@@ -1,8 +1,8 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "helm upgrade --install vantage deployments -f deployments/values.yaml hangs indefinitely during Phase 5 UAT (kind E2E deploy). Prints 'Release \"vantage\" does not exist. Installing it now.' then no further output."
 created: 2026-07-03T00:03:00+05:30
-updated: 2026-07-03T00:03:00+05:30
+updated: 2026-07-03T00:00:00Z
 ---
 
 ## Current Focus
