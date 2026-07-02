@@ -10,7 +10,10 @@
 #   3. all four Deployments Available
 #   4. GET /api/v1/gpus            → 200 + non-empty JSON array
 #   5. GET /api/v1/gpus/<id>/telemetry → 200 + rows
-#   6. OPS-03: helm upgrade --reuse-values --set mq.image.tag=dev rolls ONLY mq
+#   6. OPS-03: helm upgrade --reuse-values --set mq.image.pullPolicy=Never
+#      (a REAL pod-template change vs the IfNotPresent default) rolls ONLY mq:
+#      mq's generation must increment AND the others must stay unchanged;
+#      reverts to IfNotPresent afterwards so re-runs keep a change to make
 #
 # Requires: kubectl, helm, curl. Run via: make smoke-05
 # Assumes: make kind-up && make deploy have already been run.
@@ -96,20 +99,34 @@ assert isinstance(data, list) and len(data) > 0, 'telemetry array empty'
 pass "GET /api/v1/gpus/${GPU_ID}/telemetry → 200 + rows"
 
 # ── Step 7: OPS-03 — targeted upgrade rolls ONLY the mq Deployment ───────────
-# Capture generation of every Deployment, run a --set mq.image.tag upgrade with
-# --reuse-values, then assert streamer/collector/gateway generations unchanged.
+# Capture the generation of every Deployment, force a REAL mq pod-template
+# change (pullPolicy IfNotPresent → Never; NOT Always — vantage/*:dev images
+# live only inside the kind node, a registry pull would ImagePullBackOff),
+# then assert BOTH directions: mq's generation incremented AND
+# streamer/collector/gateway generations are unchanged. A no-op --set (like
+# the values-default tag) would render byte-identical manifests and pass
+# vacuously — the mq increment assertion is what makes this check real.
 gen() { kubectl get "deployment/${RELEASE}-$1" -o jsonpath='{.metadata.generation}'; }
+GEN_MQ=$(gen mq)
 GEN_STREAMER=$(gen streamer); GEN_COLLECTOR=$(gen collector); GEN_GATEWAY=$(gen gateway)
 
-helm upgrade --reuse-values --set mq.image.tag=dev "$RELEASE" deployments >/dev/null \
-  || fail "helm upgrade --reuse-values --set mq.image.tag=dev failed"
+helm upgrade --reuse-values --set mq.image.pullPolicy=Never "$RELEASE" deployments >/dev/null \
+  || fail "helm upgrade --reuse-values --set mq.image.pullPolicy=Never failed"
 kubectl rollout status "deployment/${RELEASE}-mq" --timeout=120s >/dev/null \
   || fail "mq rollout did not complete after targeted upgrade"
 
+[ "$(gen mq)" -gt "$GEN_MQ" ] || fail "mq did not roll (generation stuck at ${GEN_MQ}) — OPS-03 check is a no-op"
 [ "$(gen streamer)"  = "$GEN_STREAMER"  ] || fail "streamer rolled during mq-only upgrade (OPS-03 violated)"
 [ "$(gen collector)" = "$GEN_COLLECTOR" ] || fail "collector rolled during mq-only upgrade (OPS-03 violated)"
 [ "$(gen gateway)"   = "$GEN_GATEWAY"   ] || fail "gateway rolled during mq-only upgrade (OPS-03 violated)"
-pass "OPS-03: targeted mq upgrade left streamer/collector/gateway untouched"
+pass "OPS-03: mq rolled (gen ${GEN_MQ} → $(gen mq)); streamer/collector/gateway untouched"
+
+# Revert to the values default so repeated runs start from IfNotPresent and
+# the Never toggle above stays a real change on every run.
+helm upgrade --reuse-values --set mq.image.pullPolicy=IfNotPresent "$RELEASE" deployments >/dev/null \
+  || fail "revert upgrade (mq.image.pullPolicy=IfNotPresent) failed"
+kubectl rollout status "deployment/${RELEASE}-mq" --timeout=120s >/dev/null \
+  || fail "mq rollout did not complete after pullPolicy revert"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
