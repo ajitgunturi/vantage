@@ -1,0 +1,15 @@
+# Trim the Docker build context for all five build/*.Dockerfile images.
+# The builders only need the Go module tree (go.mod/go.sum + source);
+# everything below either bloats context uploads, busts layer caches on
+# unrelated changes, or must never enter an image layer (.git history, .env).
+# NOTE: dockerignore patterns anchor at the context root — `docs/` does NOT
+# match pkg/docs (the swag-generated Go package the gateway compiles in).
+.git
+.planning
+.env
+bin/
+coverage.*
+dcgm_metrics_*.csv
+deployments/
+docs/
+*.md
