@@ -5,13 +5,13 @@ milestone_name: milestone
 current_phase: 05
 current_phase_name: devops-quality-gates
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-07-02T17:55:49.057Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-07-02T18:00:11.650Z"
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 22
-  completed_plans: 19
+  completed_plans: 20
   percent: 71
 ---
 
@@ -27,9 +27,9 @@ progress:
 
 - **Milestone:** v1 (MVP)
 - **Phase:** 05 (devops-quality-gates) — EXECUTING
-- **Plan:** 2 of 4
+- **Plan:** 3 of 4
 - **Status:** Ready to execute
-- **Progress:** [█████████░] 86%
+- **Progress:** [█████████░] 91%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -71,6 +71,7 @@ progress:
 | 260702-ku8 | fix all the gaps identified as part of this review (mid-assignment 4-agent review: C-1 ack-on-persist data loss, MQ liveness M-2/M-3, gateway M-4, ADR-002, AI_USAGE docs) | 2026-07-02 | 2a2a1f7 | [260702-ku8-fix-all-the-gaps-identified-as-part-of-t](./quick/260702-ku8-fix-all-the-gaps-identified-as-part-of-t/) |
 | fast | smoke phase03: read count(*)/count(distinct) from one snapshot — two-query MVCC race falsely failed the exactly-once check | 2026-07-02 | b89753c | — |
 | Phase 05 P01 | 8 min | 2 tasks | 6 files |
+| Phase 05 P02 | 9 min | 2 tasks | 16 files |
 
 ### Roadmap Evolution
 
@@ -78,8 +79,8 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-07-02T17:55:49.051Z
-**Stopped at:** Completed 05-01-PLAN.md
+**Last session:** 2026-07-02T18:00:11.644Z
+**Stopped at:** Completed 05-02-PLAN.md
 **Resume file:** None
 
 - **Last action:** Quick task 260702-ku8 complete (2026-07-02) — all mid-assignment review gaps fixed: C-1 Collector ack-on-persist-failure (silent data loss), M-1 e2e exact-count + `make e2e` target, M-2 MQ missed-wakeup race, M-3 MQ shutdown hang (shutdownCh wired), M-4 gateway X-Truncated header, M-5 ADR-002 (µs collision accepted), M-6 streamer retry/backoff, G-1..G-4 (backoff escalation, honest lint gate, Docker-env docs, docs/AI_USAGE.md + DOC-02). Gates green: build/test/coverage 90.3%/lint.

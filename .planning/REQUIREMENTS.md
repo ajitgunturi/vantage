@@ -60,9 +60,9 @@
 ### DevOps / Deployment (OPS)
 
 - [x] **OPS-01**: Multi-stage Dockerfile per service (mq, streamer, collector, gateway)
-- [ ] **OPS-02**: Helm chart with a sub-chart per microservice plus a PostgreSQL dependency
-- [ ] **OPS-03**: Each microservice builds and deploys independently
-- [ ] **OPS-04**: MQ deploys as a single replica with `strategy: Recreate`
+- [x] **OPS-02**: Helm chart with a sub-chart per microservice plus a PostgreSQL dependency
+- [x] **OPS-03**: Each microservice builds and deploys independently
+- [x] **OPS-04**: MQ deploys as a single replica with `strategy: Recreate`
 - [x] **OPS-05**: Makefile targets for `proto`, `build`, `test`, `coverage`, `swagger`
 
 ### Quality (QA)
@@ -146,9 +146,9 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | API-03 | Phase 4 | Complete |
 | API-04 | Phase 4 | Complete |
 | OPS-01 | Phase 5 | Complete |
-| OPS-02 | Phase 5 | Pending |
-| OPS-03 | Phase 5 | Pending |
-| OPS-04 | Phase 5 | Pending |
+| OPS-02 | Phase 5 | Complete |
+| OPS-03 | Phase 5 | Complete |
+| OPS-04 | Phase 5 | Complete |
 | OPS-05 | Phase 5 | Complete |
 | QA-01 | Phase 5 | Pending |
 | QA-04 | Phase 5 | Pending |
