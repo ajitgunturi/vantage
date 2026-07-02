@@ -123,7 +123,12 @@ Plans:
   2. The MQ Deployment runs as a single replica (`replicas: 1`) with `strategy: Recreate` — no rolling-update split-brain of the in-memory broker.
   3. The Makefile exposes `proto`, `build`, `test`, `coverage`, and `swagger` targets; unit tests span all services and the coverage gate enforces ≥90% line coverage.
 
-**Plans**: TBD
+**Plans**: 0/4 plans complete
+
+- [ ] 05-01-PLAN.md — Five multi-stage Dockerfiles + Makefile deploy/kind-load/soak/test-harness plumbing (OPS-01, OPS-05) [wave 1]
+- [ ] 05-02-PLAN.md — Helm umbrella + 4 self-contained sub-charts + Bitnami OCI dep + migration hook (OPS-02, OPS-03, OPS-04) [wave 2]
+- [ ] 05-03-PLAN.md — Live-infra test-harness (compose module) + coverage-gate closure (QA-01, QA-04) [wave 2]
+- [ ] 05-04-PLAN.md — kind E2E smoke-05 + soak + README workflow (OPS-03) [wave 3]
 
 ### Phase 6: MQ Durability — Opt-in WAL Persistence
 
@@ -148,7 +153,7 @@ Plans:
 | 2. Storage Foundation — Schema + Connection Pool | 2/2 | Complete   | 2026-06-29 |
 | 3. Pipeline — Streamer + Collector + Integration | 4/4 | Complete   | 2026-06-29 |
 | 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
-| 5. DevOps + Quality Gates | 0/TBD | Not started | - |
+| 5. DevOps + Quality Gates | 0/4 | Planned | - |
 | 6. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
 
 ## Coverage
