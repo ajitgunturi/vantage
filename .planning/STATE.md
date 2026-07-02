@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 6
-current_phase_name: MQ Durability — Opt-in WAL Persistence
+current_phase_name: Production Hardening + Assignment Alignment
 status: planning
-stopped_at: Phase 5 complete (UAT 2/2, security verified) — ready to plan Phase 6
-last_updated: "2026-07-02T19:54:22.061Z"
+stopped_at: Phase 6 inserted from assignment-alignment audit; roadmap renumbered (WAL → Phase 7); ready to plan on branch phase-06-production-hardening
+last_updated: "2026-07-02T20:22:49.565Z"
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 6
   total_plans: 23
   completed_plans: 23
-  percent: 86
+  percent: 75
 ---
 
 # Project State: vantage
@@ -21,24 +21,24 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 6 — MQ Durability (opt-in WAL persistence) — last phase of v1
+- **Current focus:** Phase 6 — Production Hardening + Assignment Alignment (audit-driven); WAL durability is now Phase 7
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 6 — MQ Durability — Opt-in WAL Persistence
+- **Phase:** 6 — Production Hardening + Assignment Alignment
 - **Plan:** Not started
 - **Status:** Ready to plan
 - **Progress:** [████████████████████] 23/23 plans (100% of planned; Phase 6 plans TBD)
 
 ```
-[ ██████▱ ] 6/7 phases
+[ ██████▱▱ ] 6/8 phases
 ```
 
 ## Performance Metrics
 
-- Phases complete: 6/7 (1, 01.1, 2, 3, 4, 5)
-- Requirements delivered: 40/43 (all except DUR-01, DUR-02, QA-05 — Phase 6)
+- Phases complete: 6/8 (1, 01.1, 2, 3, 4, 5)
+- Requirements delivered: 40/52 (remaining: DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07 — Phase 6; DUR-01/02, QA-05 — Phase 7)
 - Plans executed: 23
 
 ## Accumulated Context
@@ -47,7 +47,7 @@ progress:
 
 - Vertical-MVP phase structure; 5 phases derived from the hard dependency chain (proto → MQ core → storage → pipeline → gateway → devops).
 - Storage lifted into its own foundation phase (Phase 2) because the schema + pgxpool unblocks both the Collector (Phase 3) and the Gateway (Phase 4).
-- Custom MQ on native Go concurrency only (channels / `sync.RWMutex` / ring buffer) — no third-party brokers. In-memory is the default; an opt-in WAL persistence backend (behind a `Store` interface) adds crash durability — batched group-commit fsync + replay-on-restart, at-least-once. Built as Phase 6; the interface seam lands in Phase 1.
+- Custom MQ on native Go concurrency only (channels / `sync.RWMutex` / ring buffer) — no third-party brokers. In-memory is the default; an opt-in WAL persistence backend (behind a `Store` interface) adds crash durability — batched group-commit fsync + replay-on-restart, at-least-once. Built as Phase 7 (renumbered from 6 on 2026-07-03); the interface seam lands in Phase 1.
 - **Phase 5:** migrate hook moved `pre-install` → `post-install,post-upgrade` (deviation from locked D-09, owner-approved) — pre-install deadlocked against the same release's Postgres. Bounded loud failure convention: `activeDeadlineSeconds: 300` on the Job + `--timeout 6m` on helm-install (WR-04).
 - **Phase 5:** MQ `replicas: 1` + `strategy: Recreate` hardcoded in the chart template (not values-overridable) — chart-layer enforcement of the single-replica broker invariant.
 - **Phase 5:** SECURITY.md verified — 17 threats closed, 0 open (ASVS L1, plan-time register).
@@ -59,7 +59,8 @@ progress:
 
 ### Active TODOs
 
-- Plan Phase 6 (`/gsd-plan-phase 6`) — WAL-backed `Store`: config flag, group-commit fsync, replay-on-restart, crash-recovery test (DUR-01, DUR-02, QA-05).
+- Plan Phase 6 (`/gsd-plan-phase 6`) — Production Hardening + Assignment Alignment: DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07 (source: 06-REVIEW.md).
+- Phase 7 (after Phase 6) — WAL-backed `Store`: config flag, group-commit fsync, replay-on-restart, crash-recovery test (DUR-01, DUR-02, QA-05).
 
 ### Blockers
 
@@ -78,17 +79,18 @@ progress:
 
 ### Roadmap Evolution
 
-- Phase 01.1 inserted after Phase 1: Upgrade MQ delivery to broker-side at-least-once: bidi Consume with client credit + per-message Ack + redelivery-on-disconnect. Triggered by reproduced 1000-produce/20-consume silent loss (consumed_total=513, client read 20). Must reconcile with Phase 2 SC4 / Phase 3 SC2 / Phase 6 WAL. (URGENT)
+- Phase 01.1 inserted after Phase 1: Upgrade MQ delivery to broker-side at-least-once: bidi Consume with client credit + per-message Ack + redelivery-on-disconnect. Triggered by reproduced 1000-produce/20-consume silent loss (consumed_total=513, client read 20). Must reconcile with Phase 2 SC4 / Phase 3 SC2 / WAL phase (now Phase 7). (URGENT)
+- Phase 6 inserted after Phase 5: Production Hardening + Assignment Alignment (audit-driven: AI-prompt log, health+probes, resources/HPA, pagination, CI, slog); WAL durability renumbered to Phase 7
 
 ## Session Continuity
 
 **Last session:** 2026-07-02T19:55:00Z
-**Stopped at:** Phase 5 complete (UAT 2/2 passed, security verified), ready to plan Phase 6
+**Stopped at:** Phase 6 inserted from assignment-alignment audit; roadmap renumbered (WAL → Phase 7); ready to plan on branch phase-06-production-hardening
 **Resume file:** None
 
 - **Last action:** Phase 5 UAT completed 2026-07-02 — Test 1 (kind E2E deploy + smoke-05) and Test 2 (sustained soak: rows grew, produced≥consumed, bounded depth, streamer restored) both human-verified. 05-SECURITY.md written: 17 threats closed / 0 open. VERIFICATION.md canonicalized to passed; phase marked complete in ROADMAP/STATE; PROJECT.md evolved (10 requirements moved to Validated; only WAL remains Active).
-- **Next action:** Plan Phase 6 (`/gsd-plan-phase 6`) — WAL-backed `Store` behind the Phase-1 interface seam: config-flag opt-in, batched group-commit fsync, replay-on-restart, crash-recovery test. In-memory default must stay byte-for-byte unchanged.
-- **Notes:** Machine-local `.env` must carry `DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock` (three slashes — scheme + absolute path) + `TESTCONTAINERS_RYUK_DISABLED=true`; committed `.env.example` documents this. Phase 6 relies on: Phase 2 `uq_gpu_metrics_natural_key` + Phase 3 idempotent upsert for safe at-least-once replay.
+- **Next action:** Plan Phase 6 (`/gsd-plan-phase 6`) — AI-prompt log (DOC-02), health endpoints + probes (OBS-01/OPS-07), resources/HPA (OPS-08/09), pagination (API-05), CI (QA-07), slog (OBS-02), README accuracy (DOC-03). Source: 06-REVIEW.md
+- **Notes:** Machine-local `.env` must carry `DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock` (three slashes — scheme + absolute path) + `TESTCONTAINERS_RYUK_DISABLED=true`; committed `.env.example` documents this. Phase 7 (WAL) relies on: Phase 2 `uq_gpu_metrics_natural_key` + Phase 3 idempotent upsert for safe at-least-once replay.
 
 ---
 *State initialized: 2026-06-27*

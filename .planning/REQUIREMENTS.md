@@ -25,7 +25,7 @@
 ### MQ Durability (DUR)
 
 - [ ] **DUR-01**: Opt-in WAL-backed `Store` — appends each `Produce` to a write-ahead log with batched group-commit fsync; enabled via config (in-memory remains the default)
-- [ ] **DUR-02**: On restart in WAL mode, the broker replays all persisted messages (crash-recovery durability; consumers must be idempotent). _Note: delivery-level at-least-once now lives in MQ-09 (Phase 01.1); Phase 6 narrows to crash durability — reconcile when Phase 6 is planned (ADR-001)._
+- [ ] **DUR-02**: On restart in WAL mode, the broker replays all persisted messages (crash-recovery durability; consumers must be idempotent). _Note: delivery-level at-least-once now lives in MQ-09 (Phase 01.1); Phase 7 narrows to crash durability — reconcile when Phase 7 is planned (ADR-001)._
 
 ### Streamer (STREAM)
 
@@ -56,6 +56,7 @@
 - [x] **API-02**: `GET /api/v1/gpus/{id}/telemetry` returns that GPU's telemetry ordered by time
 - [x] **API-03**: `GET /api/v1/gpus/{id}/telemetry?start_time=&end_time=` filters by time window
 - [x] **API-04**: OpenAPI spec fully auto-generated from `swag` code annotations (no hand-written spec)
+- [ ] **API-05**: `GET /api/v1/gpus/{id}/telemetry` supports `limit`/`offset` pagination pushed down into the composite-index SQL path, with pagination metadata in the response; swag annotations updated and spec regenerated _(Phase 6 — reverses the prior Out-of-Scope entry; see 06-REVIEW.md F-06)_
 
 ### DevOps / Deployment (OPS)
 
@@ -64,6 +65,9 @@
 - [x] **OPS-03**: Each microservice builds and deploys independently
 - [x] **OPS-04**: MQ deploys as a single replica with `strategy: Recreate`
 - [x] **OPS-05**: Makefile targets for `proto`, `build`, `test`, `coverage`, `swagger`
+- [ ] **OPS-07**: Every Helm sub-chart wires `livenessProbe`/`readinessProbe` (values-configurable) against the OBS-01 health endpoints _(Phase 6 — promotes v2 ENH-03 to v1)_
+- [ ] **OPS-08**: Every Helm sub-chart sets resource `requests`/`limits` with sensible per-service defaults, overridable via values
+- [ ] **OPS-09**: Gateway sub-chart ships an optional `autoscaling/v2` HPA (values-gated, CPU-based); README documents the streamer/collector scale-up/down workflow; MQ remains single-replica + `Recreate` (ADR-001 invariant untouched)
 
 ### Quality (QA)
 
@@ -72,10 +76,18 @@
 - [x] **QA-03**: Integration tests (end-to-end CSV→MQ→Collector→Postgres; gateway against a seeded DB)
 - [x] **QA-04**: ≥90% line coverage enforced via the Makefile coverage gate
 - [ ] **QA-05**: Crash-recovery test — after a simulated broker restart in WAL mode, no un-consumed message is lost (replay verified)
+- [ ] **QA-07**: GitHub Actions CI runs `make build`, `make test` (-race), `make coverage` (≥90% gate), and `make lint` on every push and pull request — the Makefile stays the single source of truth for gates
+
+### Observability (OBS)
+
+- [ ] **OBS-01**: Every service exposes `/healthz` (liveness) and `/readyz` (readiness) — gateway readiness pings the DB pool, MQ readiness reflects the gRPC server, streamer/collector run a lightweight `net/http` health listener
+- [ ] **OBS-02**: All services log through structured `log/slog` (stdlib): JSON handler, level via env, per-service attribute — replacing stdlib `log`
 
 ### Documentation & Manual Verification (DOC / QA) — cross-cutting cadence
 
 - [x] **DOC-01**: Living `README.md` quickstart, grown **incrementally** as each phase completes — a reader can clone → run → see each shipped component work. Every phase plan includes a README-update task.
+- [ ] **DOC-02**: Verbatim AI-prompt log (`docs/AI_PROMPTS.md`): stage / tool / prompt / outcome / where the prompt fell short and what manual intervention was needed — covering repo bootstrap, code, unit tests, and build env (assignment deliverable); linked from README and `docs/AI_USAGE.md`
+- [ ] **DOC-03**: README accuracy pass — migration Job documented as `post-install,post-upgrade` hook (not pre-install), plus workflow docs for the new health/probe/HPA/pagination surfaces
 - [x] **QA-06**: Runnable manual smoke suite the user executes to verify each phase's deliverables — `scripts/smoke/phaseNN-*.sh` driven by `make smoke-NN` (one phase) and `make smoke` (all phases shipped). Distinct from automated integration tests (QA-03) and the coverage gate (QA-04).
 - [ ] **OPS-06**: `docker-compose.yml` dev stack + `make dev-up`/`make dev-down` provides local dependencies (Postgres from Phase 2 on) for manual smoke testing, independent of the Phase-5 kind/Helm stack.
 
@@ -89,7 +101,7 @@ Research-surfaced differentiators. Tracked, not in the current roadmap.
 
 - **ENH-01**: Configurable MQ drop policy (drop-oldest vs reject-newest)
 - **ENH-02**: Configurable Collector batch size / flush interval
-- **ENH-03**: Kubernetes readiness/liveness health probes per service
+- ~~**ENH-03**: Kubernetes readiness/liveness health probes per service~~ _Promoted to v1 as OBS-01 + OPS-07 (Phase 6)_
 - **ENH-04**: Graceful drain of in-flight MQ messages on shutdown
 - **ENH-05**: gRPC client retry with backoff (Streamer/Collector)
 - **ENH-06**: Richer `/inspect` output (per-consumer slot state, throughput)
@@ -106,7 +118,7 @@ Explicitly excluded by `instructions.md`. Documented to prevent scope creep.
 | Consumer groups / message replay | Out of assignment scope |
 | API authentication / authorization | Not in assignment scope |
 | Hand-written OpenAPI spec | Must be auto-generated from annotations |
-| API pagination | Not in assignment scope |
+| ~~API pagination~~ | **No longer out of scope** — now in scope as API-05 (Phase 6): unbounded telemetry growth makes the bare row-cap a truncation without continuation |
 | Multi-region / cross-cluster deployment | Single Kubernetes cluster only |
 
 ## Traceability
@@ -152,19 +164,29 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | OPS-05 | Phase 5 | Complete |
 | QA-01 | Phase 5 | Complete |
 | QA-04 | Phase 5 | Complete |
-| DUR-01 | Phase 6 | Pending |
-| DUR-02 | Phase 6 | Pending |
-| QA-05 | Phase 6 | Pending |
+| DOC-02 | Phase 6 | Pending |
+| DOC-03 | Phase 6 | Pending |
+| OBS-01 | Phase 6 | Pending |
+| OBS-02 | Phase 6 | Pending |
+| OPS-07 | Phase 6 | Pending |
+| OPS-08 | Phase 6 | Pending |
+| OPS-09 | Phase 6 | Pending |
+| API-05 | Phase 6 | Pending |
+| QA-07 | Phase 6 | Pending |
+| DUR-01 | Phase 7 | Pending |
+| DUR-02 | Phase 7 | Pending |
+| QA-05 | Phase 7 | Pending |
 | DOC-01 | All phases (harness: Phase 2) | Complete |
 | QA-06 | All phases (harness: Phase 2) | Complete |
 | OPS-06 | Phase 2 | Pending |
 
 **Coverage:**
 
-- v1 requirements: 43 total
-- Mapped to phases: 43
+- v1 requirements: 52 total
+- Mapped to phases: 52
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-27*
 *Last updated: 2026-06-28 — added MQ-09/MQ-10 (broker-side at-least-once: bidi Consume + ack + credit + redelivery; Phase 01.1, ADR-001); reframed MQ-02/MQ-03; per-message-ack moved out of Out-of-Scope; DUR-02 narrowed to crash durability*
+*Last updated: 2026-07-03 — Phase 6 (Production Hardening + Assignment Alignment) inserted from code-review/assignment-alignment audit (06-REVIEW.md): +DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07; ENH-03 promoted to v1; API pagination moved out of Out-of-Scope; WAL durability (DUR-01/02, QA-05) renumbered to Phase 7*
