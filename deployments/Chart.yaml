@@ -1,0 +1,12 @@
+apiVersion: v2
+name: vantage
+description: Elastic GPU Telemetry Pipeline — umbrella chart (4 service sub-charts + PostgreSQL)
+type: application
+version: 0.1.0
+appVersion: "dev"
+
+dependencies:
+  - name: postgresql
+    version: "18.7.8"
+    repository: "oci://registry-1.docker.io/bitnamicharts"
+    condition: postgresql.enabled

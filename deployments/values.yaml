@@ -1,0 +1,43 @@
+# vantage umbrella chart values — LOCAL DEV / kind ONLY.
+# Credentials mirror docker-compose.yml (vantage/vantage) intentionally;
+# production would use a Kubernetes Secret + valueFrom.secretKeyRef.
+
+mq:
+  enabled: true
+  image:
+    repository: vantage/mq
+    tag: dev
+    pullPolicy: IfNotPresent  # D-06: user choice over Never
+
+streamer:
+  enabled: true
+  image:
+    repository: vantage/streamer
+    tag: dev
+    pullPolicy: IfNotPresent
+
+collector:
+  enabled: true
+  image:
+    repository: vantage/collector
+    tag: dev
+    pullPolicy: IfNotPresent
+
+gateway:
+  enabled: true
+  image:
+    repository: vantage/gateway
+    tag: dev
+    pullPolicy: IfNotPresent
+
+postgresql:
+  enabled: true
+  auth:
+    username: vantage
+    password: vantage   # LOCAL DEV ONLY — same precedent as docker-compose.yml
+    database: vantage
+
+migrate:
+  image:
+    repository: vantage/migrate
+    tag: dev
