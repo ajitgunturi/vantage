@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 5
 current_phase_name: DevOps + Quality Gates
 status: planning
-stopped_at: Completed 03-03-PLAN.md (Collector microservice)
-last_updated: "2026-06-30T16:56:07.721Z"
+stopped_at: Phase 5 context gathered
+last_updated: "2026-07-02T17:03:15.652Z"
 progress:
   total_phases: 7
   completed_phases: 5
@@ -77,9 +77,9 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-06-30T15:54:26.690Z
-**Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
-**Resume file:** None
+**Last session:** 2026-07-02T17:03:15.646Z
+**Stopped at:** Phase 5 context gathered
+**Resume file:** .planning/phases/05-devops-quality-gates/05-CONTEXT.md
 
 - **Last action:** Quick task 260702-ku8 complete (2026-07-02) — all mid-assignment review gaps fixed: C-1 Collector ack-on-persist-failure (silent data loss), M-1 e2e exact-count + `make e2e` target, M-2 MQ missed-wakeup race, M-3 MQ shutdown hang (shutdownCh wired), M-4 gateway X-Truncated header, M-5 ADR-002 (µs collision accepted), M-6 streamer retry/backoff, G-1..G-4 (backoff escalation, honest lint gate, Docker-env docs, docs/AI_USAGE.md + DOC-02). Gates green: build/test/coverage 90.3%/lint.
 - **Next action:** Execute Phase 3 (`/gsd-execute-phase 3`). Wave 1 = 03-01 (pkg/models) ∥ 03-02 (Streamer); Wave 2 = 03-03 (Collector); Wave 3 = 03-04 (E2E + smoke-03). Integration/E2E need Rancher Docker env: `DOCKER_HOST=unix://$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`. Service logic lives in internal/streamer + internal/collector (thin cmd wrappers) so the ≥90% coverage gate reaches it.
