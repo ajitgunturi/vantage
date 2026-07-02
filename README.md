@@ -288,7 +288,7 @@ docker compose exec -T postgres psql -U vantage -d vantage \
 With multiple Collector instances, each telemetry reading is persisted **exactly once**
 even under at-least-once MQ redelivery. The Collector's `ON CONFLICT (gpu_id, metric_name,
 timestamp) DO NOTHING` SQL clause is the enforcement point. The E2E test (QA-03) proves this
-automatically: see `test/e2e/pipeline_test.go`.
+end-to-end under `test/e2e/pipeline_test.go` (run via `make e2e` — requires Docker/Rancher Desktop).
 
 ### Verify Phase 3
 
@@ -406,7 +406,7 @@ make smoke-04
 
 ```sh
 make test       # go test -race across the module
-make coverage   # enforces ≥90% line coverage on internal/ packages
+make coverage   # enforces ≥90% line coverage on internal/ and pkg/ packages
 make lint       # golangci-lint (falls back to go vet)
 ```
 

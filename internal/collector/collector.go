@@ -47,13 +47,18 @@ func dialMQ(addr string) (*grpc.ClientConn, error) {
 // metric_name, timestamp) DO NOTHING; re-delivered duplicates are silently
 // discarded without disrupting the batch.
 //
-// pgx.Batch drain contract: br.Close is deferred immediately after SendBatch,
-// and br.Exec is called exactly b.Len() times (T-03-03d / PITFALL 4).
-// Under/over-draining corrupts the pool connection; partial row errors are
-// logged-and-continued (not returned) so the rest of the batch always lands.
+// pgx.Batch drain contract: br.Exec is called exactly b.Len() times (T-03-03d /
+// PITFALL 4). Under/over-draining corrupts the pool connection.
+//
+// Transaction semantics: pgx v5 SendBatch runs the entire batch in ONE implicit
+// transaction. An Exec error aborts the transaction and rolls back all earlier
+// rows in the same batch — "the rest of the batch always lands" is therefore
+// INCORRECT for pgx v5. persistBatch captures the first Exec error and returns
+// it wrapped so the caller (flush) can decide not to ack any of the batch.
 //
 // Bad proto messages (unparseable timestamp etc.) are skipped with a log entry
-// and do NOT abort the batch (T-03-03c).
+// and do NOT abort the batch (T-03-03c). Their slot is simply not queued; the
+// surrounding batch of valid messages still proceeds normally.
 func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryMessage) error {
 	b := &pgx.Batch{}
 	for _, msg := range msgs {
@@ -72,13 +77,29 @@ func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryM
 		return nil
 	}
 	br := pool.SendBatch(ctx, b)
-	defer br.Close() // MUST be deferred before the Exec loop (PITFALL 4)
+	// Drain ALL b.Len() Exec calls unconditionally — PITFALL 4 (pgx v5): under- or
+	// over-draining leaves the pool connection in an undefined state that silently
+	// corrupts subsequent queries. Capture the first genuine error for return.
+	var firstErr error
 	for i := 0; i < b.Len(); i++ {
 		if _, err := br.Exec(); err != nil {
-			// ON CONFLICT DO NOTHING means this only fires on genuine errors.
-			// Log-and-continue so the rest of the batch is not aborted.
+			// pgx v5 SendBatch runs the whole batch in ONE implicit transaction;
+			// a single Exec error aborts the transaction and rolls back all rows
+			// already executed in this batch. Log each error for observability but
+			// only capture the first to return to the caller (C-1 fix).
+			if firstErr == nil {
+				firstErr = err
+			}
 			log.Printf("collector: batch row %d exec: %v", i, err)
 		}
+	}
+	// br.Close flushes any remaining round-trips and releases the connection back
+	// to the pool. If Close fails and no Exec error was seen, surface the Close error.
+	if cerr := br.Close(); cerr != nil && firstErr == nil {
+		firstErr = cerr
+	}
+	if firstErr != nil {
+		return fmt.Errorf("collector: persist batch: %w", firstErr)
 	}
 	return nil
 }
@@ -104,6 +125,11 @@ func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryM
 // Ack ordering: each ack is sent per-message after the whole batch persists,
 // replenishing exactly one credit slot per ack in the broker's sliding window.
 func Consume(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool, cfg Config) error {
+	// Derive a child context so that an early error return (e.g. persistBatch failure)
+	// cancels the recv goroutine and prevents it from leaking (Collector MINOR).
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	stream, err := client.Consume(ctx)
 	if err != nil {
 		return fmt.Errorf("collector: open stream: %w", err)
@@ -150,8 +176,16 @@ func Consume(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool,
 			return nil
 		}
 		if err := persistBatch(ctx, pool, batch); err != nil {
+			// persistBatch failed — do NOT ack any message. The unacked messages
+			// remain in the broker's lease table and are redelivered on disconnect
+			// (at-least-once, ADR-001). Returning the error causes Consume to exit
+			// and Run's reconnect loop to re-establish the stream (C-1 fix).
 			return err
 		}
+		// Ack every message in the batch, including any that persistBatch skipped
+		// due to bad proto (unparseable timestamp etc.). Acking poison messages is
+		// DELIBERATE: redelivering them forever would stall the pipeline. They are
+		// logged in persistBatch and do not land in the DB (T-03-03c).
 		for _, m := range batch {
 			if err := stream.Send(&pb.ConsumeClientMsg{AckId: m.GetId()}); err != nil {
 				return fmt.Errorf("collector: send ack (id=%d): %w", m.GetId(), err)
@@ -197,6 +231,13 @@ func Consume(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool,
 // Error classification: context.Canceled / ctx.Err() non-nil → clean exit;
 // any other Consume error → log "stream ended — reconnecting" and retry.
 // DSN and sensitive data are never included in logged or returned errors (T-03-03c).
+//
+// Backoff escalation (G-1): grpc.NewClient is lazy — a "successful" dial never
+// makes a real TCP connection, so a dial that does not error is NOT evidence that
+// the MQ is actually reachable. Backoff is therefore reset only after a Consume
+// attempt that survived long enough (>5s) to indicate a genuine working connection.
+// Unconditional reset at dial time pins retries at 100ms forever against a
+// repeatedly-unreachable MQ.
 func Run(ctx context.Context, cfg Config, pool *pgxpool.Pool) error {
 	backoff := 100 * time.Millisecond
 	const maxBackoff = 5 * time.Second
@@ -217,8 +258,10 @@ func Run(ctx context.Context, cfg Config, pool *pgxpool.Pool) error {
 			backoff = min(backoff*2, maxBackoff)
 			continue
 		}
-		backoff = 100 * time.Millisecond // reset on successful dial
+		// Do NOT reset backoff here: grpc.NewClient is lazy and never makes a real
+		// TCP connection, so a successful dial is not evidence the MQ is up (G-1).
 
+		consumeStart := time.Now()
 		err = Consume(ctx, pb.NewMQServiceClient(conn), pool, cfg)
 		conn.Close() //nolint:errcheck
 
@@ -230,6 +273,15 @@ func Run(ctx context.Context, cfg Config, pool *pgxpool.Pool) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
+		// Reset backoff only after a Consume that survived long enough to prove
+		// the MQ was genuinely up (>5s of uptime indicates a real connection). A
+		// Consume that fails in <5s (e.g. connect refused on first real RPC) does
+		// NOT reset, so the exponential backoff escalates as intended (G-1 fix).
+		if time.Since(consumeStart) > 5*time.Second {
+			backoff = 100 * time.Millisecond
+		}
+
 		log.Printf("collector: stream ended (%v) — reconnecting in %v", err, backoff)
 		select {
 		case <-time.After(backoff):

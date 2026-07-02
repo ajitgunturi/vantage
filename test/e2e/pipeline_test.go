@@ -4,12 +4,14 @@
 // pipeline (QA-03): CSV → Streamer → MQ (bufconn, in-process) → Collector →
 // PostgreSQL (testcontainers postgres:17-alpine).
 //
-// The core assertion is exactly-once delivery under concurrent collectors:
+// The core assertions prove exactly-once delivery under concurrent collectors:
 //
-//	count(*) FROM gpu_metrics == count(DISTINCT gpu_id, metric_name, timestamp)
+//  1. count(*) == 200: all 200 fixture rows landed — no silent data loss (M-1).
+//  2. count(*) == count(DISTINCT gpu_id, metric_name, timestamp): zero duplicates.
+//  3. count(DISTINCT gpu_id) == fixtureGPUCount: UUID→gpu_id mapping held end-to-end.
 //
 // This proves that K=3 concurrent collectors persisting from the same at-least-once
-// MQ broker produce zero duplicate rows — the idempotent ON CONFLICT DO NOTHING
+// MQ broker produce all rows without loss or duplication — ON CONFLICT DO NOTHING
 // absorbs any redeliveries.
 //
 // Run with:
@@ -327,13 +329,19 @@ func TestEndToEnd_ExactlyOnce(t *testing.T) {
 
 	// ── 8. Exactly-once assertions ────────────────────────────────────────────────
 
-	// Assertion 1: at least one row persisted.
+	// Assertion 1: all 200 fixture rows persisted — proves no-loss (M-1 fix).
+	// The fixture has fixtureGPUCount × fixtureMetricCount = 200 distinct-key rows.
+	// A count less than 200 means the pipeline silently dropped rows; count > 200
+	// is impossible (ON CONFLICT DO NOTHING prevents duplicates). Exact equality
+	// is therefore the minimal meaningful no-loss check.
+	const fixtureRows = int64(fixtureGPUCount * fixtureMetricCount) // 200
 	var totalCount int64
 	require.NoError(t,
 		testPool.QueryRow(ctx, "SELECT count(*) FROM gpu_metrics").Scan(&totalCount),
 		"count(*) FROM gpu_metrics must succeed")
-	require.Greater(t, totalCount, int64(0),
-		"pipeline must persist at least one row to gpu_metrics")
+	require.Equal(t, fixtureRows, totalCount,
+		"M-1 no-loss proof: pipeline must persist all %d fixture rows — got %d",
+		fixtureRows, totalCount)
 
 	// Assertion 2: zero duplicate rows.
 	// count(DISTINCT ...) via subquery (PostgreSQL does not support multi-column

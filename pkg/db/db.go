@@ -74,8 +74,17 @@ func Migrate(ctx context.Context, dsn string) error {
 		return fmt.Errorf("db: iofs source: %w", err)
 	}
 
-	// Convert postgres:// (pgx pool DSN) to pgx5:// (golang-migrate driver scheme).
-	pgx5DSN := strings.Replace(dsn, "postgres://", "pgx5://", 1)
+	// Convert postgres:// or postgresql:// (pgx pool DSN) to pgx5:// (golang-migrate
+	// driver scheme). The pgx/v5 driver is registered under the "pgx5" scheme (Pitfall 3).
+	// Both "postgres://" and "postgresql://" are valid prefixes from testcontainers and
+	// other Postgres DSN sources (db MINOR fix).
+	pgx5DSN := dsn
+	switch {
+	case strings.HasPrefix(dsn, "postgres://"):
+		pgx5DSN = "pgx5://" + dsn[len("postgres://"):]
+	case strings.HasPrefix(dsn, "postgresql://"):
+		pgx5DSN = "pgx5://" + dsn[len("postgresql://"):]
+	}
 
 	m, err := migrate.NewWithSourceInstance("iofs", src, pgx5DSN)
 	if err != nil {

@@ -64,6 +64,32 @@ func (f *cancelProducer) Consume(_ context.Context, _ ...grpc.CallOption) (grpc.
 	return nil, fmt.Errorf("consume not supported in cancelProducer")
 }
 
+// erringThenSucceedProducer fails the first failN Produce calls, then succeeds.
+// Models an MQ that is temporarily unavailable then recovers (M-6 scenario).
+type erringThenSucceedProducer struct {
+	mu      sync.Mutex
+	total   int // total Produce attempts (including failures)
+	success int // successful Produce calls
+	failN   int // fail first failN attempts
+	msgs    []*pb.TelemetryMessage
+}
+
+func (e *erringThenSucceedProducer) Produce(_ context.Context, in *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.total++
+	if e.total <= e.failN {
+		return nil, fmt.Errorf("fake MQ unavailable (attempt %d/%d)", e.total, e.failN)
+	}
+	e.success++
+	e.msgs = append(e.msgs, in.GetMessage())
+	return &pb.ProduceResponse{Accepted: true}, nil
+}
+
+func (e *erringThenSucceedProducer) Consume(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[pb.ConsumeClientMsg, pb.TelemetryMessage], error) {
+	return nil, fmt.Errorf("consume not supported in erringThenSucceedProducer")
+}
+
 // --- CSV fixture helpers --------------------------------------------------
 
 // validRecord returns a valid 12-column DCGM CSV data row (no header).
@@ -269,6 +295,44 @@ func TestStream_LoopsUntilCancel(t *testing.T) {
 	fake.mu.Unlock()
 	require.GreaterOrEqual(t, count, 6,
 		"Stream must complete at least 2 full CSV passes before cancellation")
+}
+
+// TestStream_RetryOnProduceError verifies M-6: Stream must retry with backoff when
+// Produce fails, and succeed once the MQ "recovers" (fake client stops failing).
+//
+// TDD gate: before the M-6 fix (Stream returns error immediately on Produce fail),
+// this test fails because Stream returns a non-nil error. After the fix (retry
+// with backoff), Stream retries until all rows are published and returns nil.
+func TestStream_RetryOnProduceError(t *testing.T) {
+	// Two-row fixture CSV.
+	path := writeTempCSV(t, [][]string{
+		validRecord("GPU-retry-0001", "METRIC_RETRY_A", "1.0"),
+		validRecord("GPU-retry-0002", "METRIC_RETRY_B", "2.0"),
+	})
+
+	// Fail the first 3 Produce attempts (simulates a temporary MQ blip), then succeed.
+	fake := &erringThenSucceedProducer{failN: 3}
+
+	// 5-second timeout is generous; with 100ms base backoff the 3 retries
+	// take at most ~700ms (100ms + 200ms + 400ms = 700ms) before succeeding.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := Stream(ctx, fake, path, 0, true)
+
+	require.NoError(t, err,
+		"M-6: Stream must survive Produce failures (retry with backoff) and complete cleanly")
+
+	fake.mu.Lock()
+	totalAttempts := fake.total
+	successCount := fake.success
+	fake.mu.Unlock()
+
+	// At least 4 total attempts: 3 failures + at least 1 success per row.
+	require.GreaterOrEqual(t, totalAttempts, 4,
+		"must have made at least 4 Produce attempts (3 failures + successes)")
+	require.Equal(t, 2, successCount,
+		"both CSV rows must eventually be published successfully")
 }
 
 // TestStream_Concurrent10 launches 10 goroutines each calling Stream(once=true)
