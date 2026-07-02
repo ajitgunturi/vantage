@@ -84,8 +84,24 @@ func main() {
 	// (3) Shutdown coordination goroutine — waits for signal then tears down in order.
 	g.Go(func() error {
 		<-gctx.Done()
+		// Close shutdownCh first so Consume send loops wake from their blocking
+		// selects and return codes.Unavailable before GracefulStop polls them.
 		mqSrv.Shutdown()
-		grpcSrv.GracefulStop()
+		// Race GracefulStop against a 5s timeout; fall back to Stop() so a slow
+		// stream cannot prevent the process from exiting (M-3 fix).
+		gracefulDone := make(chan struct{})
+		go func() {
+			grpcSrv.GracefulStop()
+			close(gracefulDone)
+		}()
+		select {
+		case <-gracefulDone:
+			// all streams finished cleanly
+		case <-time.After(5 * time.Second):
+			log.Printf("mq: GracefulStop timeout — forcing Stop()")
+			grpcSrv.Stop()
+			<-gracefulDone // Stop() wakes GracefulStop's condition variable
+		}
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return httpSrv.Shutdown(shutCtx)

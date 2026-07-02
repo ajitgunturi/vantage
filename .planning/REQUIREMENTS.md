@@ -59,18 +59,18 @@
 
 ### DevOps / Deployment (OPS)
 
-- [ ] **OPS-01**: Multi-stage Dockerfile per service (mq, streamer, collector, gateway)
-- [ ] **OPS-02**: Helm chart with a sub-chart per microservice plus a PostgreSQL dependency
-- [ ] **OPS-03**: Each microservice builds and deploys independently
-- [ ] **OPS-04**: MQ deploys as a single replica with `strategy: Recreate`
-- [ ] **OPS-05**: Makefile targets for `proto`, `build`, `test`, `coverage`, `swagger`
+- [x] **OPS-01**: Multi-stage Dockerfile per service (mq, streamer, collector, gateway)
+- [x] **OPS-02**: Helm chart with a sub-chart per microservice plus a PostgreSQL dependency
+- [x] **OPS-03**: Each microservice builds and deploys independently
+- [x] **OPS-04**: MQ deploys as a single replica with `strategy: Recreate`
+- [x] **OPS-05**: Makefile targets for `proto`, `build`, `test`, `coverage`, `swagger`
 
 ### Quality (QA)
 
-- [ ] **QA-01**: Unit tests across all services
+- [x] **QA-01**: Unit tests across all services
 - [x] **QA-02**: Race-detector tests for MQ concurrency proving N produced = N consumed across K consumers
 - [x] **QA-03**: Integration tests (end-to-end CSV→MQ→Collector→Postgres; gateway against a seeded DB)
-- [ ] **QA-04**: ≥90% line coverage enforced via the Makefile coverage gate
+- [x] **QA-04**: ≥90% line coverage enforced via the Makefile coverage gate
 - [ ] **QA-05**: Crash-recovery test — after a simulated broker restart in WAL mode, no un-consumed message is lost (replay verified)
 
 ### Documentation & Manual Verification (DOC / QA) — cross-cutting cadence
@@ -145,13 +145,13 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | API-02 | Phase 4 | Complete |
 | API-03 | Phase 4 | Complete |
 | API-04 | Phase 4 | Complete |
-| OPS-01 | Phase 5 | Pending |
-| OPS-02 | Phase 5 | Pending |
-| OPS-03 | Phase 5 | Pending |
-| OPS-04 | Phase 5 | Pending |
-| OPS-05 | Phase 5 | Pending |
-| QA-01 | Phase 5 | Pending |
-| QA-04 | Phase 5 | Pending |
+| OPS-01 | Phase 5 | Complete |
+| OPS-02 | Phase 5 | Complete |
+| OPS-03 | Phase 5 | Complete |
+| OPS-04 | Phase 5 | Complete |
+| OPS-05 | Phase 5 | Complete |
+| QA-01 | Phase 5 | Complete |
+| QA-04 | Phase 5 | Complete |
 | DUR-01 | Phase 6 | Pending |
 | DUR-02 | Phase 6 | Pending |
 | QA-05 | Phase 6 | Pending |

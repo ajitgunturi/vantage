@@ -288,7 +288,11 @@ docker compose exec -T postgres psql -U vantage -d vantage \
 With multiple Collector instances, each telemetry reading is persisted **exactly once**
 even under at-least-once MQ redelivery. The Collector's `ON CONFLICT (gpu_id, metric_name,
 timestamp) DO NOTHING` SQL clause is the enforcement point. The E2E test (QA-03) proves this
-automatically: see `test/e2e/pipeline_test.go`.
+end-to-end under `test/e2e/pipeline_test.go` (run via `make e2e` — requires Docker/Rancher Desktop).
+
+> **Concurrent Streamers:** Under ≥2 simultaneous Streamer instances, nanosecond-level
+> timestamp collisions can cause `ON CONFLICT DO NOTHING` to silently drop a duplicate row.
+> This is accepted by design — see [`ADR-002`](docs/adr/ADR-002-natural-key-microsecond-collision.md).
 
 ### Verify Phase 3
 
@@ -400,13 +404,89 @@ make smoke-04
 8. Prints gateway URL, GPU count, and Swagger UI URL
 9. Leaves Postgres running; kills only the gateway process on exit
 
+## Phase 5 — DevOps (Docker + Kubernetes/Helm)
+
+Every service ships as a **multi-stage distroless image** and deploys to a local **kind** cluster
+via a **Helm umbrella chart** — four self-contained sub-charts plus a Bitnami PostgreSQL dependency,
+with schema migrations run by a pre-install hook Job before any service pod starts.
+
+### Prerequisites
+
+- **Docker via Rancher Desktop** — the Makefile exports `DOCKER_HOST=unix://~/.rd/docker.sock`
+  for every target (no manual env needed).
+- **kind** at `~/go/bin/kind` (`make tools` installs it; the Makefile prepends `~/go/bin` to PATH).
+- **Helm v3/v4** on PATH.
+
+### Deploy workflow
+
+```sh
+make kind-up     # one-time: create the kind cluster
+make deploy      # docker (5 images) -> kind-load -> helm-install
+make smoke-05    # prove the deployed pipeline end-to-end
+make kind-down   # delete the cluster
+```
+
+`make deploy` builds all five images (`vantage/{mq,streamer,collector,gateway,migrate}:dev`),
+loads them into kind, pulls the Bitnami PostgreSQL chart (`make dependency-update`, automatic),
+and installs the umbrella release. The migration hook Job waits for Postgres, applies the schema,
+then service pods roll.
+
+> **Caveat (images):** charts use `imagePullPolicy: IfNotPresent` with the fixed `:dev` tag —
+> a forgotten `make kind-load` after rebuilding images surfaces as `ImagePullBackOff` or stale
+> code running. Re-run `make deploy` (or `make docker kind-load`) after code changes.
+
+**Independent deploys (OPS-03):** every sub-chart exposes `enabled` and `image.tag`:
+
+```sh
+helm upgrade --reuse-values --set mq.image.tag=dev vantage deployments   # rolls ONLY mq
+helm upgrade --reuse-values --set streamer.enabled=false vantage deployments
+```
+
+The MQ deploys as a **single replica with `strategy: Recreate`** — hardcoded in the sub-chart
+template (never a value) because the in-memory broker cannot be replicated (ADR-001).
+
+### Smoke (`make smoke-05`)
+
+Assumes `make kind-up deploy` already ran; fails fast with a clear message otherwise. Asserts:
+migration Job completed, all four Deployments Available, port-forwarded gateway (local **8081**)
+returns real rows from `/api/v1/gpus` and `/telemetry`, and a `--set mq.image.tag` upgrade rolls
+only the MQ Deployment.
+
+### Soak (`make soak`)
+
+Sustained-load endurance run against the deployed cluster:
+
+```sh
+make soak                              # defaults: 60s, 3 streamer replicas
+SOAK_DURATION=300 SOAK_STREAMERS=10 make soak   # the 10-concurrent-streamer proof
+```
+
+Scales the streamer Deployment, then asserts rows keep growing, MQ inspect counters reconcile
+(`produced_total >= consumed_total`), and queue depth stays bounded below capacity. Restores
+1 replica on exit.
+
+### Live-infrastructure test harness (`make test-harness`)
+
+A programmatic E2E suite (distinct from `make test` and the smoke scripts) that owns the **full
+five-image docker-compose stack** (`docker-compose.full.yml`) via testcontainers-go:
+
+```sh
+make test-harness          # hermetic: up -> assert pipeline correctness -> down
+KEEP=1 make test-harness   # leave the stack running for debugging
+```
+
+The suite (`test/harness/`, behind a `//go:build e2e` tag — excluded from `make test` and the
+coverage gate) waits for the gateway, then proves rows flowed CSV → streamer → MQ → collector →
+Postgres → gateway, and that counts keep growing. Point the same suite at a kind deployment with
+`HARNESS_GATEWAY_BASE=http://localhost:8081` (skips compose stack ownership).
+
 ## Testing
 
 ### Automated (unit + concurrency + coverage)
 
 ```sh
 make test       # go test -race across the module
-make coverage   # enforces ≥90% line coverage on internal/ packages
+make coverage   # enforces ≥90% line coverage on internal/ and pkg/ packages
 make lint       # golangci-lint (falls back to go vet)
 ```
 
@@ -445,9 +525,23 @@ leases, proving redelivery over the wire.
 | **2 — Storage** ✅ | Postgres time-series schema + `pgxpool` in `pkg/db` | `make dev-up`, `go run ./cmd/migrate`, `make smoke-02` |
 | **3 — Pipeline** ✅ | Streamer + Collector (CSV → MQ → Postgres); exactly-once E2E test | `make build`, `make test`, `make coverage`, `make smoke-03` |
 | **4 — API Gateway** ✅ | REST read API + auto-generated OpenAPI | `make build`, `make test`, `make coverage`, `make smoke-04` |
-| 5 — DevOps | Dockerfiles + Helm; runs on kind | _(coming)_ `make docker`, `make kind-up` |
+| **5 — DevOps** ✅ | 5 distroless images + Helm umbrella on kind; e2e harness | `make deploy`, `make smoke-05`, `make soak`, `make test-harness` |
 
 ---
 
 Built phase-by-phase with the GSD framework. See [`CLAUDE.md`](CLAUDE.md) for conventions and the
 hard constraints (custom MQ from scratch, ≥90% coverage, auto-generated OpenAPI, time-series schema).
+
+---
+
+## Design records
+
+- [`ADR-001`](docs/adr/ADR-001-bidi-at-least-once-delivery.md) — Broker-side at-least-once delivery (bidi Consume stream with credit + ack)
+- [`ADR-002`](docs/adr/ADR-002-natural-key-microsecond-collision.md) — Natural-key microsecond collision under concurrent Streamers (accepted, by design)
+
+---
+
+## AI-assisted development
+
+This project was built with Claude (Anthropic) as primary implementation partner.
+All code was human-reviewed before commit. See [`docs/AI_USAGE.md`](docs/AI_USAGE.md) for scope, oversight practices, and known limitations.

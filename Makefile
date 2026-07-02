@@ -1,17 +1,44 @@
 # vantage — elastic GPU telemetry pipeline
 # Single Go module. cmd/{mq,streamer,collector,gateway} are independent service
 # entrypoints; shared code lives in pkg/{pb,db,models}.
+#
+# Machine-local settings (Docker socket, testcontainers) live in .env
+# (gitignored). On first run, make writes a .env template with empty values —
+# edit it and set DOCKER_HOST for your Docker provider:
+#
+#   Rancher Desktop: DOCKER_HOST=unix://$HOME/.rd/docker.sock
+#   Docker Desktop:  DOCKER_HOST=unix://$HOME/.docker/run/docker.sock
+#
+# Docker-dependent targets (test, coverage, e2e, docker, deploy, soak, ...)
+# validate the values via the check-env prerequisite. Pure-Go targets
+# (build, lint, proto, swagger) never need Docker or .env values.
 
 SERVICES := mq streamer collector gateway
+DOCKER_IMAGES := $(SERVICES) migrate
 COVERAGE_THRESHOLD ?= 90
 PROTO_DIR := api/proto
 PB_OUT    := pkg/pb
 
+# Tooling PATH: kind lives in ~/go/bin (not on shell PATH).
+export PATH := $(HOME)/go/bin:$(PATH)
+
+# ── Machine-local env (.env, gitignored) ─────────────────────────────────────
+# Self-templating: the template is written at Makefile *parse* time (any
+# target, including help, triggers creation) so the prompt surfaces
+# immediately. Empty values only hard-fail via check-env on targets that
+# actually need Docker.
+ifeq ($(wildcard .env),)
+$(shell printf 'DOCKER_HOST=\nTESTCONTAINERS_RYUK_DISABLED=true\n' > .env)
+$(warning Created .env template — set DOCKER_HOST (e.g. unix://$$HOME/.rd/docker.sock))
+endif
+include .env
+export DOCKER_HOST TESTCONTAINERS_RYUK_DISABLED
+
 .DEFAULT_GOAL := help
 
-.PHONY: help tools check-protoc proto build test coverage swagger lint tidy clean \
+.PHONY: help tools check-env check-protoc proto build test coverage e2e swagger lint tidy clean \
         smoke smoke-% docker docker-% kind-up helm-install kind-down \
-        dev-up dev-down
+        dev-up dev-down kind-load deploy dependency-update soak test-harness
 
 help: ## List targets
 	@grep -hE '^[a-zA-Z_%-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -23,6 +50,13 @@ tools: ## Install dev tools (protoc plugins, swag, golangci-lint, kind)
 	go install github.com/swaggo/swag/cmd/swag@v1.16.4
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install sigs.k8s.io/kind@latest
+
+check-env: ## Verify machine-local .env values are set (prerequisite of Docker targets)
+	@[ -n "$(DOCKER_HOST)" ] || { \
+		echo "ERROR: DOCKER_HOST is empty — edit .env"; \
+		echo "  Rancher Desktop: unix://$$HOME/.rd/docker.sock"; \
+		echo "  Docker Desktop:  unix://$$HOME/.docker/run/docker.sock"; \
+		exit 1; }
 
 check-protoc: ## Verify protoc binary is present (install: brew install protobuf / apt install protobuf-compiler)
 	@command -v protoc >/dev/null 2>&1 || { \
@@ -45,10 +79,10 @@ build: ## Build all service binaries that exist (services land phase by phase)
 		if [ -d ./cmd/$$s ]; then echo "== build $$s =="; go build -o bin/$$s ./cmd/$$s; \
 		else echo "-- skip $$s (cmd/$$s not present yet) --"; fi; done
 
-test: ## Run all unit + integration tests with race detector and coverage
+test: check-env ## Run all unit + integration tests with race detector and coverage
 	go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
-coverage: ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ and pkg/ packages (generated pkg/pb excluded)
+coverage: check-env ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ and pkg/ packages (generated pkg/pb excluded)
 	PKGS=$$(go list ./internal/... ./pkg/... | grep -v '/pkg/pb\|/pkg/docs'); \
 	go test -race -covermode=atomic -coverprofile=coverage.out -tags=integration $$PKGS
 	@go tool cover -func=coverage.out | tail -1
@@ -56,6 +90,9 @@ coverage: ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ and pk
 	echo "total coverage: $$total% (min $(COVERAGE_THRESHOLD)%)"; \
 	awk "BEGIN{exit !($$total >= $(COVERAGE_THRESHOLD))}" || \
 		{ echo "FAIL: coverage $$total% < $(COVERAGE_THRESHOLD)%"; exit 1; }
+
+e2e: check-env ## Run end-to-end pipeline tests (requires Docker — see .env, top-of-file comment)
+	go test -race -tags=integration -count=1 -v ./test/e2e/...
 
 smoke: ## Run every phase's manual smoke check (all phases shipped so far)
 	@found=0; for f in scripts/smoke/phase*.sh; do \
@@ -67,7 +104,7 @@ smoke-%: ## Run one phase's manual smoke check, e.g. make smoke-01
 		[ -e "$$f" ] || continue; found=1; echo "== $$f =="; bash "$$f" || exit 1; done; \
 	[ "$$found" = 1 ] || { echo "no smoke scripts for phase $* (looked for scripts/smoke/phase$*-*.sh)"; exit 1; }
 
-dev-up: ## Start local dev dependencies (Postgres via docker compose)
+dev-up: check-env ## Start local dev dependencies (Postgres via docker compose)
 	docker compose up -d --wait
 
 dev-down: ## Stop local dev dependencies
@@ -76,8 +113,13 @@ dev-down: ## Stop local dev dependencies
 swagger: ## Auto-generate the OpenAPI spec from gateway code annotations
 	swag init -g cmd/gateway/main.go -o pkg/docs
 
-lint: ## Lint (golangci-lint, fallback go vet)
-	golangci-lint run ./... 2>/dev/null || go vet ./...
+lint: ## Lint (golangci-lint when installed, fallback go vet — G-2: errors are never swallowed)
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "golangci-lint not found — running go vet (install via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest)"; \
+		go vet ./...; \
+	fi
 
 tidy: ## go mod tidy
 	go mod tidy
@@ -85,16 +127,36 @@ tidy: ## go mod tidy
 clean: ## Remove build + coverage artifacts
 	rm -rf bin coverage.out coverage.html
 
-docker: $(addprefix docker-,$(SERVICES)) ## Build all service images
+docker: check-env $(addprefix docker-,$(DOCKER_IMAGES)) ## Build all five images (4 services + migrate)
 
-docker-%: ## Build a single service image (build/%.Dockerfile)
+docker-%: check-env ## Build a single service image (build/%.Dockerfile)
 	docker build -f build/$*.Dockerfile -t vantage/$*:dev .
 
-kind-up: ## Create local kind cluster
+kind-up: check-env ## Create local kind cluster
 	kind create cluster --name vantage
 
-helm-install: ## Install the umbrella chart into kind
-	helm upgrade --install vantage deployments -f deployments/values.yaml
+helm-install: dependency-update ## Install/upgrade the umbrella chart into kind
+	# --timeout 6m > the migrate hook's activeDeadlineSeconds (300s): a stuck
+	# migration surfaces as the Job's DeadlineExceeded, not Helm's own timeout.
+	# Cold first installs pull busybox + bitnami/postgresql from Docker Hub.
+	helm upgrade --install vantage deployments -f deployments/values.yaml --timeout 6m
 
 kind-down: ## Delete the kind cluster
 	kind delete cluster --name vantage
+
+dependency-update: ## Pull Helm chart dependencies (Bitnami postgresql OCI)
+	helm dependency update deployments/
+
+kind-load: check-env ## Load all five vantage/*:dev images into the vantage kind cluster
+	@for img in $(DOCKER_IMAGES); do \
+		echo "== kind load $$img =="; \
+		kind load docker-image vantage/$$img:dev --name vantage; \
+	done
+
+deploy: check-env docker kind-load helm-install ## Full deploy cycle: docker build -> kind-load -> helm install
+
+soak: check-env ## Run sustained pipeline soak (SOAK_DURATION=60, SOAK_STREAMERS=3)
+	@bash scripts/soak.sh
+
+test-harness: check-env ## Run live-infrastructure E2E harness (requires Docker)
+	go test -race -tags=e2e -count=1 -v -timeout 120s ./test/harness/...

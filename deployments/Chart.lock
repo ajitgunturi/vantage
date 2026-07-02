@@ -1,0 +1,18 @@
+dependencies:
+- name: mq
+  repository: ""
+  version: 0.1.0
+- name: streamer
+  repository: ""
+  version: 0.1.0
+- name: collector
+  repository: ""
+  version: 0.1.0
+- name: gateway
+  repository: ""
+  version: 0.1.0
+- name: postgresql
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 18.7.8
+digest: sha256:f2bb93b35ad5cc2929dc5da3d2bcc9084b72ec81bfef1d3d61675110d0c7ae75
+generated: "2026-07-02T23:28:52.604803+05:30"

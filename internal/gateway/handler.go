@@ -1,8 +1,10 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -52,12 +54,15 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // @Description Returns time-series metric rows for a GPU ordered newest-first (API-02).
 // @Description Optional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).
 // @Description Result is capped at VANTAGE_GATEWAY_MAX_ROWS rows (OQ-1).
+// @Description When the result is capped, X-Truncated: true and X-Row-Limit: <n> headers are set (M-4).
 // @Tags        gpus
 // @Produce     json
 // @Param       id         path     string  true  "GPU UUID"
 // @Param       start_time query    string  false "Inclusive lower bound (RFC3339); omit for unbounded"
 // @Param       end_time   query    string  false "Inclusive upper bound (RFC3339); omit for unbounded"
 // @Success     200  {array}   GpuMetricResponse
+// @Header      200  {string}  X-Truncated  "true when the result was capped at X-Row-Limit rows"
+// @Header      200  {string}  X-Row-Limit  "Maximum rows returned (VANTAGE_GATEWAY_MAX_ROWS)"
 // @Failure     400  {object}  ErrorResponse  "malformed start_time or end_time"
 // @Failure     404  {object}  ErrorResponse  "gpu_id not found"
 // @Failure     500  {object}  ErrorResponse
@@ -96,9 +101,14 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 			return
 		}
 
+		// Bound DB round-trips to 10s so a slow Postgres query cannot hold
+		// the handler goroutine open indefinitely (gateway MINOR).
+		dbCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
 		// Distinguish unknown GPU (→ 404) from known GPU with empty window (→ 200 [])
 		// per OQ-2 / T-04-03. id is bound as $1; injection impossible (ASVS V5).
-		exists, err := db.GPUExists(r.Context(), pool, id)
+		exists, err := db.GPUExists(dbCtx, pool, id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to check GPU")
 			return
@@ -109,10 +119,19 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 		}
 
 		// Fetch telemetry capped at maxRows (OQ-1 / T-04-05).
-		metrics, err := db.Telemetry(r.Context(), pool, id, start, end, maxRows)
+		metrics, err := db.Telemetry(dbCtx, pool, id, start, end, maxRows)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to fetch telemetry")
 			return
+		}
+
+		// Signal truncation BEFORE writing the body (headers must be set before
+		// WriteHeader/Write or they are dropped — M-4 silent-truncation fix).
+		// X-Truncated: true  — result was capped; caller should narrow the window
+		// X-Row-Limit: <n>   — the cap that was applied
+		if len(metrics) == maxRows {
+			w.Header().Set("X-Truncated", "true")
+			w.Header().Set("X-Row-Limit", strconv.Itoa(maxRows))
 		}
 
 		// Map domain structs to HTTP response DTOs (RESEARCH Pattern 6: JSON tags
@@ -153,7 +172,10 @@ func ListGPUs(pool *pgxpool.Pool) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "database not available")
 			return
 		}
-		ids, err := db.DistinctGPUIDs(r.Context(), pool)
+		// Bound DB round-trip to 10s (gateway MINOR: DB timeout).
+		dbCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		ids, err := db.DistinctGPUIDs(dbCtx, pool)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to query GPU IDs")
 			return

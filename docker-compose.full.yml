@@ -1,0 +1,83 @@
+# vantage — FULL five-image stack for the live-infrastructure E2E harness
+# (make test-harness, D-15..D-19). Extends the topology of docker-compose.yml
+# (postgres service copied verbatim) with all five vantage/*:dev images built
+# by `make docker`.
+#
+# Credentials are LOCAL DEV ONLY — same precedent as docker-compose.yml.
+# Gateway maps host 8090 -> container 8080 to avoid clashing with mq's 8080.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB:       vantage
+      POSTGRES_USER:     vantage
+      POSTGRES_PASSWORD: vantage   # LOCAL DEV ONLY
+    # No host port mapping: the harness asserts via the gateway (8090); an
+    # exposed 5432 would collide with the docker-compose.yml dev stack.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vantage -d vantage"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  migrate:
+    image: vantage/migrate:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      VANTAGE_DB_DSN: "postgres://vantage:vantage@postgres:5432/vantage?sslmode=disable"
+    restart: "no"   # one-shot: runs migrations and exits 0
+
+  mq:
+    image: vantage/mq:dev
+    environment:
+      MQ_GRPC_ADDR: ":50051"
+      MQ_HTTP_ADDR: ":8080"
+    ports:
+      - "50051:50051"
+      - "8080:8080"    # HTTP inspect
+
+  streamer:
+    image: vantage/streamer:dev
+    depends_on:
+      - mq
+    environment:
+      STREAMER_MQ_ADDR: "mq:50051"
+      STREAMER_CSV_PATH: "/data/dcgm_metrics.csv"
+      STREAMER_LOOP_DELAY_MS: "5"
+    volumes:
+      - ./testdata/fixture.csv:/data/dcgm_metrics.csv:ro
+
+  collector:
+    image: vantage/collector:dev
+    depends_on:
+      mq:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      COLLECTOR_MQ_ADDR: "mq:50051"
+      VANTAGE_DB_DSN: "postgres://vantage:vantage@postgres:5432/vantage?sslmode=disable"
+
+  gateway:
+    image: vantage/gateway:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      GATEWAY_ADDR: ":8080"
+      VANTAGE_DB_DSN: "postgres://vantage:vantage@postgres:5432/vantage?sslmode=disable"
+    ports:
+      - "8090:8080"    # host 8090 avoids clash with mq's 8080
+
+volumes:
+  pgdata:

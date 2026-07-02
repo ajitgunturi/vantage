@@ -42,7 +42,7 @@ func TestConsumeStreamOpenError(t *testing.T) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err, "grpc.NewClient is lazy — must not fail here")
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { conn.Close() }) //nolint:errcheck
 
 	client := pb.NewMQServiceClient(conn)
 	cfg := collector.Config{BatchSize: 10, FlushMS: 200, Credit: 20}

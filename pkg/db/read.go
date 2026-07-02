@@ -76,20 +76,6 @@ func GPUExists(ctx context.Context, pool *pgxpool.Pool, id string) (bool, error)
 //
 // Security: all parameters are pgx-bound ($1..$4); no string concatenation;
 // DSN never embedded in errors (T-04-03, T-04-04, T-04-06 / ASVS V5, V8).
-// Telemetry returns the metric rows for the given gpu_id ordered by timestamp
-// DESC, capped at limit rows. start and end are optional inclusive RFC3339
-// time bounds (nil = unbounded in that direction; OQ-3 partial bounds).
-//
-// Design — two-query approach (RESEARCH Pattern 5 / A1):
-//   - No bounds: simpler query without any IS NULL predicate; index on
-//     (gpu_id, timestamp DESC) is used without the OR branch overhead.
-//   - At least one bound: nullable-bound predicate so the planner can still
-//     use the composite index for both full and partial windows (API-03).
-//
-// Returns a non-nil empty slice when no rows match (encodes as [] not null).
-//
-// Security: all parameters are pgx-bound ($1..$4); no string concatenation;
-// DSN never embedded in errors (T-04-03, T-04-04, T-04-06 / ASVS V5, V8).
 func Telemetry(
 	ctx context.Context,
 	pool *pgxpool.Pool,

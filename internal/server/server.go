@@ -23,6 +23,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"io"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -172,7 +174,14 @@ func (s *MQServer) Consume(stream pb.MQService_ConsumeServer) error {
 		for {
 			msg, rerr := stream.Recv()
 			if rerr != nil {
-				recvFinalErr = rerr
+				// Translate io.EOF to nil: the client called CloseSend(), which is
+				// a clean half-close — not an error. Anything else (transport failure,
+				// context cancel) is surfaced as-is (MQ MINOR: io.EOF translation).
+				if errors.Is(rerr, io.EOF) {
+					recvFinalErr = nil
+				} else {
+					recvFinalErr = rerr
+				}
 				return
 			}
 			if id := msg.GetAckId(); id != 0 {
@@ -185,27 +194,28 @@ func (s *MQServer) Consume(stream pb.MQService_ConsumeServer) error {
 		}
 	}()
 
-	// Step 6: deferred cleanup — join the recv goroutine (no leak), then requeue
-	// unacked leases oldest-first for redelivery to a survivor (at-least-once).
+	// Step 6: deferred cleanup — join the recv goroutine (no leak), drain any
+	// remaining acks FIRST (before requeue, so confirmed messages are not
+	// needlessly redelivered — MQ MINOR: disconnect cleanup reorder), then
+	// requeue unacked leases oldest-first for redelivery to a survivor (at-least-once).
 	defer func() {
 		wg.Wait()
-		if len(leases) > 0 {
-			msgs := sortedByID(leases)
-			s.store.Requeue(msgs)
-			atomic.AddInt64(&s.redelivered, int64(len(msgs)))
-			atomic.AddInt64(&s.inFlight, -int64(len(msgs)))
-			for _, m := range msgs {
-				delete(leases, m.GetId())
-			}
-			s.notifyAll() // wake survivors to pick up the redelivered messages
-		}
-		// Drain any acks that arrived after the send loop exited.
+		// After wg.Wait(), the recv goroutine has exited and closed ackCh — this
+		// range loop always terminates. Drain acks before requeue so that messages
+		// the client already confirmed are removed from leases and not requeued.
 		for id := range ackCh {
 			if _, ok := leases[id]; ok {
 				delete(leases, id)
 				atomic.AddInt64(&s.consumed, 1)
 				atomic.AddInt64(&s.inFlight, -1)
 			}
+		}
+		if len(leases) > 0 {
+			msgs := sortedByID(leases)
+			s.store.Requeue(msgs)
+			atomic.AddInt64(&s.redelivered, int64(len(msgs)))
+			atomic.AddInt64(&s.inFlight, -int64(len(msgs)))
+			s.notifyAll() // wake survivors to pick up the redelivered messages
 		}
 	}()
 
@@ -254,14 +264,25 @@ func (s *MQServer) Consume(stream pb.MQService_ConsumeServer) error {
 			continue
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-s.shutdownCh:
+			// Server is shutting down — wake parked consumers so GracefulStop
+			// is not blocked indefinitely (M-3 fix).
+			return status.Error(codes.Unavailable, "shutting down")
 		}
+
+		// Capture the notify channel BEFORE TryDequeue to close the missed-wakeup
+		// window (M-2 fix): if Produce+notifyAll fires between capture and dequeue,
+		// we either see the message in TryDequeue or we hold the pre-close handle
+		// (immediate wakeup). Reading notifyChan AFTER TryDequeue risks sleeping
+		// forever on a missed signal.
+		ch := s.notifyChan()
 
 		// Fetch the next message; park if the store is empty.
 		msg, ok := s.store.TryDequeue()
 		if !ok {
 			sem <- struct{}{} // return the unused token
 			select {
-			case <-s.notifyChan(): // Produce signalled a new message
+			case <-ch: // Produce signalled a new message (M-2: captured before TryDequeue)
 			case id, ok := <-ackCh: // an ack arrived — process it (receiving consumes it)
 				if !ok {
 					return recvFinalErr
@@ -271,6 +292,9 @@ func (s *MQServer) Consume(stream pb.MQService_ConsumeServer) error {
 				}
 			case <-ctx.Done():
 				return ctx.Err()
+			case <-s.shutdownCh:
+				// Server is shutting down — wake parked consumers (M-3 fix).
+				return status.Error(codes.Unavailable, "shutting down")
 			}
 			continue
 		}
@@ -291,8 +315,10 @@ func (s *MQServer) Consume(stream pb.MQService_ConsumeServer) error {
 	}
 }
 
-// creditCeiling bounds a consumer's credit window. It is the ring capacity when
-// bounded (and >= creditCeiling), otherwise the fixed creditCeiling constant.
+// creditCeiling bounds a consumer's credit window to max(ring capacity,
+// creditCeiling constant). It guards small-cap rings (capacity < constant) and
+// unbounded backends (Capacity == -1) where a malicious/huge initial credit
+// would otherwise exhaust memory (T-01.1-03, MQ MINOR: creditCeiling doc).
 func (s *MQServer) creditCeiling() int {
 	cap := s.store.Inspect().Capacity
 	if cap < 0 {

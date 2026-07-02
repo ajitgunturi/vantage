@@ -1,0 +1,45 @@
+{{- if .Values.enabled }}
+# MQ broker Deployment.
+# NOTE (D-04, OPS-04, ADR-001): replicas and strategy are HARDCODED —
+# the MQ is an in-memory broker; multi-replica is undefined behaviour
+# (split-brain). Never template these from values.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-mq
+  labels:
+    app.kubernetes.io/name: mq
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1                 # LOCKED: in-memory broker — never scale
+  strategy:
+    type: Recreate            # LOCKED: new pod only after old terminates
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mq
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mq
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: mq
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 50051
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MQ_GRPC_ADDR
+              value: ":50051"
+            - name: MQ_HTTP_ADDR
+              value: ":8080"
+            - name: MQ_BUFFER_SIZE
+              value: "10000"
+            - name: MQ_CONSUME_CREDIT
+              value: "20"
+{{- end }}

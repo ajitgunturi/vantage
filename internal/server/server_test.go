@@ -13,7 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/ajitg/vantage/internal/queue"
 	"github.com/ajitg/vantage/internal/server"
@@ -477,6 +479,128 @@ func TestMQServer_Shutdown_ReturnsOnDisconnect(t *testing.T) {
 	// Shutdown is idempotent — safe to call twice.
 	srv.Shutdown()
 	srv.Shutdown()
+}
+
+// TestMQ_MissedWakeup_SingleConsumer verifies M-2: a single consumer that parks
+// on the notify channel (store empty) must receive a message produced AFTER the
+// park starts — no missed-wakeup stall.
+//
+// TDD gate: before the M-2 fix (notifyChan captured AFTER TryDequeue), there is
+// a race window where a Produce between TryDequeue and notifyChan swaps in a new
+// channel that the consumer never reads. After the fix (capture before TryDequeue),
+// the consumer always holds the pre-Produce channel and the notification fires.
+//
+// This test exercises the scenario deterministically by confirming the consumer
+// is active before producing, then asserting delivery within a generous bound.
+func TestMQ_MissedWakeup_SingleConsumer(t *testing.T) {
+	s := queue.NewRingStore(100)
+	srv := server.NewMQServer(s, 5)
+	defer srv.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var delivered atomic.Int64
+	ms := newMockStream(ctx, 5, 10)
+	ms.onSend = func() {
+		last := ms.sentMsgs()
+		m := last[len(last)-1]
+		delivered.Add(1)
+		ms.sendAck(m.GetId())
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		srv.Consume(ms) //nolint:errcheck
+	}()
+
+	// Wait until the consumer is registered and has entered the send loop.
+	require.Eventually(t, func() bool {
+		return srv.Stats().ActiveConsumers == 1
+	}, 1*time.Second, 5*time.Millisecond, "consumer must become active")
+
+	// Yield briefly so the consumer goroutine can reach the park point (TryDequeue
+	// returns false; consumer waits on notifyCh).
+	runtime.Gosched()
+	time.Sleep(10 * time.Millisecond)
+
+	// Produce one message — this triggers notifyAll and should wake the parked consumer.
+	_, err := srv.Produce(ctx, &pb.ProduceRequest{
+		Message: &pb.TelemetryMessage{MetricName: "missed-wakeup-probe"},
+	})
+	require.NoError(t, err)
+
+	// The consumer must receive and ack the message within a generous bound.
+	require.Eventually(t, func() bool {
+		return delivered.Load() >= 1
+	}, 3*time.Second, 5*time.Millisecond,
+		"M-2: consumer must receive the message — missed-wakeup race must be absent")
+
+	cancel()
+	wg.Wait()
+}
+
+// TestMQ_ShutdownUnderActiveStream verifies M-3: calling srv.Shutdown() while a
+// Consume stream is in its (otherwise infinite) send loop must cause Consume to
+// return promptly — no hang until SIGKILL.
+//
+// Production sequence: mqSrv.Shutdown() closes shutdownCh → send loop wakes and
+// returns codes.Unavailable. grpcSrv.GracefulStop() (called immediately after) sends
+// GOAWAY which cancels the gRPC stream context → stream.Recv() in the recv goroutine
+// returns → wg.Wait() in the cleanup defer completes → Consume returns.
+//
+// TDD gate: before the M-3 fix (shutdownCh was write-only dead code in the send
+// loop), Consume never observed the Shutdown signal and this test timed out. After
+// the fix, the send loop returns codes.Unavailable within 2s.
+//
+// The test simulates both steps by cancelling the stream context right after
+// Shutdown (mirroring what GracefulStop does in production).
+func TestMQ_ShutdownUnderActiveStream(t *testing.T) {
+	s := queue.NewRingStore(100)
+	srv := server.NewMQServer(s, 10)
+
+	// Use a cancellable stream context so we can simulate GracefulStop's
+	// stream-context cancellation (which unblocks the recv goroutine's Recv call).
+	streamCtx, streamCancel := context.WithCancel(context.Background())
+	defer streamCancel()
+
+	ms := newMockStream(streamCtx, 5, 10)
+	ms.onSend = func() {
+		last := ms.sentMsgs()
+		ms.sendAck(last[len(last)-1].GetId())
+	}
+
+	consumeDone := make(chan error, 1)
+	go func() {
+		consumeDone <- srv.Consume(ms)
+	}()
+
+	// Wait for the consumer to be active.
+	require.Eventually(t, func() bool {
+		return srv.Stats().ActiveConsumers == 1
+	}, 1*time.Second, 5*time.Millisecond, "consumer must become active")
+
+	// Step 1: signal shutdown (send loop wakes via <-s.shutdownCh, returns Unavailable).
+	srv.Shutdown()
+	// Step 2: cancel the stream context to simulate GracefulStop's GOAWAY, which
+	// unblocks the recv goroutine's Recv() call and allows the cleanup defer to complete.
+	streamCancel()
+
+	select {
+	case got := <-consumeDone:
+		// Accept nil (clean exit), codes.Unavailable (shutdown signal hit first),
+		// or context.Canceled (stream cancel beat the shutdown select).
+		if got != nil {
+			st, _ := status.FromError(got)
+			acceptable := st.Code() == codes.Unavailable || errors.Is(got, context.Canceled)
+			require.True(t, acceptable,
+				"M-3: Consume must return Unavailable or Canceled on shutdown+stream-close, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("M-3: Consume did not return within 2s after Shutdown() — shutdown hang detected")
+	}
 }
 
 // TestMQ_GoroutineLeak verifies the per-consumer recv goroutine is joined on

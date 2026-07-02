@@ -1,0 +1,66 @@
+# Schema migration hook Job (D-09/D-10/D-11).
+# Runs vantage/migrate:dev to completion AFTER Helm applies all regular release
+# resources (post-install,post-upgrade). The umbrella chart owns this Job because
+# the schema is a shared concern (collector writes, gateway reads).
+#
+# Hook ordering: post-install,post-upgrade means all regular manifests (including
+# the Bitnami postgresql StatefulSet and Service) are created BEFORE this hook
+# runs. The wait-for-postgres init container can therefore resolve
+# {{ .Release.Name }}-postgresql:5432 — no circular wait.
+#
+# Bounded failure: activeDeadlineSeconds:300 on the Job spec ensures a stuck
+# migration fails loudly within 5 minutes (vs. silently hanging forever).
+# The 300s budget deliberately covers a COLD first install: kind-load only
+# preloads the five vantage/*:dev images, so the node must still pull
+# busybox:1.36 (init container below) and bitnami/postgresql (~150MB+) from
+# Docker Hub — the deadline clock includes those pulls and the entire
+# wait-for-postgres init phase. Combined with --timeout 6m on helm upgrade
+# (which must exceed this deadline so the Job's DeadlineExceeded surfaces as
+# the named error, not Helm's own timeout), any stall produces a named,
+# time-bounded error.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migrate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  activeDeadlineSeconds: 300
+  # restartPolicy Never only stops in-place container restarts — without this,
+  # the Job's backoffLimit default of 6 would spawn up to 7 pods and bury the
+  # first real migration error under DeadlineExceeded. Keep 1 (not 0): the
+  # nc -z init gate only proves Postgres accepts TCP, and Postgres can accept
+  # connections during startup/recovery before it is query-ready — one retry
+  # absorbs that window.
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never   # fail loudly; do not restart on migration error
+      initContainers:
+        # Postgres is a regular release resource applied before this post-install
+        # hook runs — the wait resolves without deadlock. Block here until
+        # Postgres accepts TCP so migrate never false-fails during StatefulSet
+        # startup (all-clear before the main migrate container begins DDL).
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ .Release.Name }}-postgresql 5432; do
+                echo "waiting for {{ .Release.Name }}-postgresql:5432 ..."
+                sleep 2
+              done
+      containers:
+        - name: migrate
+          image: "{{ .Values.migrate.image.repository }}:{{ .Values.migrate.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: VANTAGE_DB_DSN
+              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
