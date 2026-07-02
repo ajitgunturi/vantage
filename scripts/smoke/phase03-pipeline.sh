@@ -126,19 +126,23 @@ echo "streamer started (PID $STREAMER_PID)"
 echo "pipeline running — waiting 5s for telemetry to land in Postgres..."
 sleep 5
 
-# ── Step 9: assert rows landed (count(*) > 0) ────────────────────────────────
-TOTAL=$(pg_exec -tAc "SELECT count(*) FROM gpu_metrics;" 2>&1 | tr -d '[:space:]')
-# Guard: psql output should be a plain integer; any non-numeric output means an error.
-[[ "$TOTAL" =~ ^[0-9]+$ ]] || fail "count(*) query returned non-integer: $TOTAL"
-[ "$TOTAL" -gt 0 ]         || fail "gpu_metrics is empty after 5s — pipeline produced no rows"
-pass "Rows persisted: $TOTAL > 0"
-
-# ── Step 10: assert exactly-once (zero duplicate natural keys) ────────────────
-DISTINCT=$(pg_exec -tAc \
-  "SELECT count(*) FROM (SELECT DISTINCT gpu_id, metric_name, timestamp FROM gpu_metrics) d;" \
+# ── Steps 9+10: assert rows landed + exactly-once, from ONE snapshot ──────────
+# Both aggregates MUST come from a single statement: the pipeline is still
+# inserting, so two separate queries would see different MVCC snapshots and the
+# equality check below can falsely fail (rows land between the two queries).
+# Note uq_gpu_metrics_natural_key makes real duplicate keys impossible to store —
+# this check guards the snapshot/query discipline itself, not the index.
+COUNTS=$(pg_exec -tAc \
+  "SELECT count(*), count(DISTINCT (gpu_id, metric_name, timestamp)) FROM gpu_metrics;" \
   2>&1 | tr -d '[:space:]')
-[[ "$DISTINCT" =~ ^[0-9]+$ ]] || fail "count(distinct) query returned non-integer: $DISTINCT"
-[ "$TOTAL" -eq "$DISTINCT" ]   || \
+TOTAL=${COUNTS%%|*}
+DISTINCT=${COUNTS##*|}
+# Guard: psql output should be two plain integers; anything else means an error.
+[[ "$TOTAL" =~ ^[0-9]+$ ]]    || fail "count(*) query returned non-integer: $COUNTS"
+[[ "$DISTINCT" =~ ^[0-9]+$ ]] || fail "count(distinct) query returned non-integer: $COUNTS"
+[ "$TOTAL" -gt 0 ]            || fail "gpu_metrics is empty after 5s — pipeline produced no rows"
+pass "Rows persisted: $TOTAL > 0"
+[ "$TOTAL" -eq "$DISTINCT" ]  || \
   fail "Duplicate rows detected: count(*) $TOTAL != count(distinct) $DISTINCT (exactly-once violated)"
 pass "Exactly-once: count(*) == count(distinct natural key) ($TOTAL rows, zero duplicates)"
 
