@@ -8,10 +8,16 @@
 # runs. The wait-for-postgres init container can therefore resolve
 # {{ .Release.Name }}-postgresql:5432 — no circular wait.
 #
-# Bounded failure: activeDeadlineSeconds:120 on the Job spec ensures a stuck
-# migration fails loudly within 2 minutes (vs. silently hanging to Helm's 5m
-# default). Combined with --timeout 3m on helm upgrade, any stall produces a
-# named, time-bounded error.
+# Bounded failure: activeDeadlineSeconds:300 on the Job spec ensures a stuck
+# migration fails loudly within 5 minutes (vs. silently hanging forever).
+# The 300s budget deliberately covers a COLD first install: kind-load only
+# preloads the five vantage/*:dev images, so the node must still pull
+# busybox:1.36 (init container below) and bitnami/postgresql (~150MB+) from
+# Docker Hub — the deadline clock includes those pulls and the entire
+# wait-for-postgres init phase. Combined with --timeout 6m on helm upgrade
+# (which must exceed this deadline so the Job's DeadlineExceeded surfaces as
+# the named error, not Helm's own timeout), any stall produces a named,
+# time-bounded error.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -21,7 +27,7 @@ metadata:
     "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
-  activeDeadlineSeconds: 120
+  activeDeadlineSeconds: 300
   # restartPolicy Never only stops in-place container restarts — without this,
   # the Job's backoffLimit default of 6 would spawn up to 7 pods and bury the
   # first real migration error under DeadlineExceeded. Keep 1 (not 0): the

@@ -136,7 +136,10 @@ kind-up: check-env ## Create local kind cluster
 	kind create cluster --name vantage
 
 helm-install: dependency-update ## Install/upgrade the umbrella chart into kind
-	helm upgrade --install vantage deployments -f deployments/values.yaml --timeout 3m
+	# --timeout 6m > the migrate hook's activeDeadlineSeconds (300s): a stuck
+	# migration surfaces as the Job's DeadlineExceeded, not Helm's own timeout.
+	# Cold first installs pull busybox + bitnami/postgresql from Docker Hub.
+	helm upgrade --install vantage deployments -f deployments/values.yaml --timeout 6m
 
 kind-down: ## Delete the kind cluster
 	kind delete cluster --name vantage
