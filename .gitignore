@@ -39,6 +39,8 @@ dcgm_metrics_*.csv
 
 # Machine-local make environment (self-templated by the Makefile — see check-env)
 .env
+# Committed reference template (re-included: a global gitignore may match .env.*)
+!.env.example
 
 # Personal/machine-local Claude Code config (shared config goes in settings.json)
 .claude/settings.local.json
