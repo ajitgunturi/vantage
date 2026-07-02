@@ -64,6 +64,12 @@ progress:
 
 - None.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260702-ku8 | fix all the gaps identified as part of this review (mid-assignment 4-agent review: C-1 ack-on-persist data loss, MQ liveness M-2/M-3, gateway M-4, ADR-002, AI_USAGE docs) | 2026-07-02 | 2a2a1f7 | [260702-ku8-fix-all-the-gaps-identified-as-part-of-t](./quick/260702-ku8-fix-all-the-gaps-identified-as-part-of-t/) |
+
 ### Roadmap Evolution
 
 - Phase 01.1 inserted after Phase 1: Upgrade MQ delivery to broker-side at-least-once: bidi Consume with client credit + per-message Ack + redelivery-on-disconnect. Triggered by reproduced 1000-produce/20-consume silent loss (consumed_total=513, client read 20). Must reconcile with Phase 2 SC4 / Phase 3 SC2 / Phase 6 WAL. (URGENT)
@@ -74,7 +80,7 @@ progress:
 **Stopped at:** Completed 03-03-PLAN.md (Collector microservice)
 **Resume file:** None
 
-- **Last action:** Plan 02-01 complete — pkg/db (New, Migrate, Config, FromEnv), migration SQL, and full integration suite (TestMigration, TestNew, TestUniqueConstraint, TestCompositeIndexUsed at 100k rows) all pass under -race.
+- **Last action:** Quick task 260702-ku8 complete (2026-07-02) — all mid-assignment review gaps fixed: C-1 Collector ack-on-persist-failure (silent data loss), M-1 e2e exact-count + `make e2e` target, M-2 MQ missed-wakeup race, M-3 MQ shutdown hang (shutdownCh wired), M-4 gateway X-Truncated header, M-5 ADR-002 (µs collision accepted), M-6 streamer retry/backoff, G-1..G-4 (backoff escalation, honest lint gate, Docker-env docs, docs/AI_USAGE.md + DOC-02). Gates green: build/test/coverage 90.3%/lint.
 - **Next action:** Execute Phase 3 (`/gsd-execute-phase 3`). Wave 1 = 03-01 (pkg/models) ∥ 03-02 (Streamer); Wave 2 = 03-03 (Collector); Wave 3 = 03-04 (E2E + smoke-03). Integration/E2E need Rancher Docker env: `DOCKER_HOST=unix://$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`. Service logic lives in internal/streamer + internal/collector (thin cmd wrappers) so the ≥90% coverage gate reaches it.
 - **Notes:** Phase 3 locked decision: use INSERT...ON CONFLICT (not CopyFrom) for idempotent Collector upserts against uq_gpu_metrics_natural_key. Streamer must restamp at RFC3339Nano in Phase 3. Rancher Desktop docker socket: set DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true for integration tests.
 
