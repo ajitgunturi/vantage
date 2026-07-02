@@ -98,12 +98,37 @@ func recordToProto(record []string) (*pb.TelemetryMessage, error) {
 // Stream is stateless: each invocation opens its own file descriptor and maintains
 // no shared mutable state. Up to 10 concurrent calls over the same path are safe
 // under -race (STREAM-05).
+// produceWithRetry publishes msg to the MQ with exponential backoff on transient
+// Produce failures (M-6 fix). Backoff: base 100ms, cap 5s, ctx-aware sleep.
+// Returns nil when the message is accepted, or ctx.Err() if the context is
+// cancelled before a successful Produce. One MQ blip must NOT kill the instance.
+func produceWithRetry(ctx context.Context, client pb.MQServiceClient, msg *pb.TelemetryMessage) error {
+	backoff := 100 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+	for {
+		_, err := client.Produce(ctx, &pb.ProduceRequest{Message: msg})
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		log.Printf("streamer: produce failed (retrying in %v): %v", backoff, err)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		backoff = min(backoff*2, maxBackoff)
+	}
+}
+
 func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loopDelayMS int, once bool) error {
 	f, err := os.Open(csvPath)
 	if err != nil {
 		return fmt.Errorf("streamer: open csv: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	for {
 		// Check cancellation at the top of each pass before seeking.
@@ -135,11 +160,18 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 				log.Printf("streamer: skip bad record: %v", err)
 				continue
 			}
-			if _, err := client.Produce(ctx, &pb.ProduceRequest{Message: msg}); err != nil {
-				return fmt.Errorf("streamer: produce: %w", err)
+			// produceWithRetry retries on transient MQ failures so a single blip
+			// does not kill the instance (M-6). Returns only on success or ctx cancel.
+			if err := produceWithRetry(ctx, client, msg); err != nil {
+				return err // only ctx.Err() reaches here
 			}
 			if loopDelayMS > 0 {
-				time.Sleep(time.Duration(loopDelayMS) * time.Millisecond)
+				// ctx-aware sleep: cancel propagates immediately (Streamer MINOR).
+				select {
+				case <-time.After(time.Duration(loopDelayMS) * time.Millisecond):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 		}
 		if once {
@@ -162,7 +194,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	client := pb.NewMQServiceClient(conn)
 	return Stream(ctx, client, cfg.CSVPath, cfg.LoopDelayMS, false)
 }

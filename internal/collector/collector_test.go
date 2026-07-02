@@ -17,6 +17,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/ajitg/vantage/internal/collector"
@@ -34,6 +36,75 @@ import (
 	"github.com/ajitg/vantage/pkg/db"
 	"github.com/ajitg/vantage/pkg/pb"
 )
+
+// ── Fake stream helpers (C-1 test) ──────────────────────────────────────────
+
+// fakeConsumeStream implements pb.MQService_ConsumeClient
+// (= grpc.BidiStreamingClient[pb.ConsumeClientMsg, pb.TelemetryMessage])
+// for unit/integration tests that need to inspect ack behaviour without a real gRPC server.
+//
+// Recv() returns pre-loaded messages in order, then blocks on ctx until done.
+// Send() records every outgoing ConsumeClientMsg (initial credit + acks).
+type fakeConsumeStream struct {
+	ctx  context.Context
+	msgs []*pb.TelemetryMessage // pre-loaded to deliver via Recv
+	pos  int                    // next index in msgs
+	mu   sync.Mutex
+	sent []*pb.ConsumeClientMsg // all Send calls recorded here
+}
+
+func (f *fakeConsumeStream) Send(msg *pb.ConsumeClientMsg) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent = append(f.sent, msg)
+	return nil
+}
+
+func (f *fakeConsumeStream) Recv() (*pb.TelemetryMessage, error) {
+	if f.pos < len(f.msgs) {
+		m := f.msgs[f.pos]
+		f.pos++
+		return m, nil
+	}
+	// No more pre-loaded messages — block until the context is cancelled
+	// (simulates the broker waiting for more messages).
+	<-f.ctx.Done()
+	return nil, f.ctx.Err()
+}
+
+// acksSent returns the number of Send calls that carried an AckId (not credit).
+func (f *fakeConsumeStream) acksSent() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, m := range f.sent {
+		if m.GetAckId() != 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// grpc.ClientStream interface — no-ops for test purposes.
+func (f *fakeConsumeStream) Header() (metadata.MD, error)  { return nil, nil }
+func (f *fakeConsumeStream) Trailer() metadata.MD          { return nil }
+func (f *fakeConsumeStream) CloseSend() error              { return nil }
+func (f *fakeConsumeStream) Context() context.Context      { return f.ctx }
+func (f *fakeConsumeStream) SendMsg(_ any) error           { return nil }
+func (f *fakeConsumeStream) RecvMsg(_ any) error           { return nil }
+
+// fakeMQClient is a pb.MQServiceClient that returns a fakeConsumeStream.
+type fakeMQClient struct {
+	stream *fakeConsumeStream
+}
+
+func (f *fakeMQClient) Produce(_ context.Context, _ *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
+	return nil, fmt.Errorf("produce not supported in fakeMQClient")
+}
+
+func (f *fakeMQClient) Consume(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[pb.ConsumeClientMsg, pb.TelemetryMessage], error) {
+	return f.stream, nil
+}
 
 // package-level vars shared across all tests via TestMain.
 var (
@@ -328,6 +399,74 @@ func TestBadProtoSkipped(t *testing.T) {
 	// The bad-proto message must be skipped (not inserted), the valid one must land.
 	require.Equal(t, 1, rowCount(t),
 		"bad-proto message must be skipped; only the valid message must land (T-03-03c)")
+}
+
+// TestPersistBatchError_NoAcks verifies C-1: when the DB insert fails, Consume
+// must NOT ack any of the batch messages. The unacked messages stay in the broker's
+// lease table and are redelivered on disconnect (at-least-once, ADR-001).
+//
+// The failure is induced by using a pool that is closed immediately after creation,
+// so every SendBatch → Exec call returns an error.
+//
+// TDD gate: before the C-1 fix (persistBatch always returned nil), flush would
+// silently ack every message despite the failed insert → acksSent() returns 5
+// and the test fails. After the fix (persistBatch returns the first Exec error),
+// flush returns immediately without acking → acksSent() returns 0 → test passes.
+func TestPersistBatchError_NoAcks(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	// Open a fresh pool and immediately close it to simulate a DB failure.
+	// Any SendBatch → Exec on a closed pool returns a connection-acquisition error.
+	dsn := testCtr.MustConnectionString(ctx, "sslmode=disable")
+	failPool, err := pgxpool.New(ctx, dsn)
+	require.NoError(t, err, "create fail pool")
+	failPool.Close() // close immediately — SendBatch Exec will fail
+
+	// Pre-load BatchSize=5 valid TelemetryMessages into the fake stream.
+	// Messages carry non-zero broker IDs so AckId != 0 when acks are sent.
+	// All pass models.FromProto (valid RFC3339Nano timestamp, non-empty UUID).
+	const batchSz = 5
+	msgs := make([]*pb.TelemetryMessage, batchSz)
+	for i := range msgs {
+		msgs[i] = &pb.TelemetryMessage{
+			Id:         uint64(i + 1), // non-zero broker id — acks carry this id
+			Uuid:       fmt.Sprintf("GPU-C1-%04d-0000-0000-0000-000000000000", i),
+			GpuId:      fmt.Sprintf("%d", i),
+			MetricName: "DCGM_FI_DEV_GPU_UTIL",
+			Timestamp:  time.Now().UTC().Add(time.Duration(i) * time.Microsecond).Format(time.RFC3339Nano),
+			Value:      float64(i + 1),
+			Device:     "nvidia0",
+			ModelName:  "NVIDIA H100",
+			Hostname:   "test-host",
+		}
+	}
+
+	// Short context so the test completes promptly in the buggy case too.
+	// In the buggy case: flush acks, then Consume blocks waiting for more msgs,
+	// ctx expires (3s), Consume returns context.DeadlineExceeded.
+	// In the fixed case: persistBatch returns error immediately, Consume returns.
+	consumeCtx, consumeCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer consumeCancel()
+
+	fStream := &fakeConsumeStream{ctx: consumeCtx, msgs: msgs}
+	fakeClient := &fakeMQClient{stream: fStream}
+
+	cfg := collector.Config{
+		BatchSize: batchSz, // size-trigger fires when all batchSz msgs arrive
+		FlushMS:   5000,    // timer disabled — only size-trigger fires
+		Credit:    20,      // comfortably above batchSz
+	}
+
+	_ = collector.Consume(consumeCtx, fakeClient, failPool, cfg)
+
+	// Core assertion: zero acks must be sent when persistBatch fails.
+	// Acking a failed batch causes the broker to discard messages — silent data loss.
+	// In the buggy code: persistBatch returns nil → flush sends 5 acks → acksSent()==5 → FAIL.
+	// After fix:         persistBatch returns error → flush exits → acksSent()==0 → PASS.
+	require.Zero(t, fStream.acksSent(),
+		"C-1: no acks must be sent when persistBatch fails — "+
+			"unacked messages will be redelivered by the broker's requeue-on-disconnect")
 }
 
 // TestReconnect covers COLL-02: the collector reconnects after the MQ drops the

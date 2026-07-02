@@ -43,7 +43,7 @@
         },
         "/gpus/{id}/telemetry": {
             "get": {
-                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nResult is capped at VANTAGE_GATEWAY_MAX_ROWS rows (OQ-1).",
+                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nResult is capped at VANTAGE_GATEWAY_MAX_ROWS rows (OQ-1).\nWhen the result is capped, X-Truncated: true and X-Row-Limit: \u003cn\u003e headers are set (M-4).",
                 "produces": [
                     "application/json"
                 ],
@@ -79,6 +79,16 @@
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/gateway.GpuMetricResponse"
+                            }
+                        },
+                        "headers": {
+                            "X-Row-Limit": {
+                                "type": "string",
+                                "description": "Maximum rows returned (VANTAGE_GATEWAY_MAX_ROWS)"
+                            },
+                            "X-Truncated": {
+                                "type": "string",
+                                "description": "true when the result was capped at X-Row-Limit rows"
                             }
                         }
                     },

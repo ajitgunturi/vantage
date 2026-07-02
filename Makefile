@@ -1,6 +1,17 @@
 # vantage — elastic GPU telemetry pipeline
 # Single Go module. cmd/{mq,streamer,collector,gateway} are independent service
 # entrypoints; shared code lives in pkg/{pb,db,models}.
+#
+# Integration tests (coverage, e2e) require Docker / Rancher Desktop.
+# Set these environment variables before running them:
+#
+#   export DOCKER_HOST=unix://$$HOME/.rd/docker.sock
+#   export TESTCONTAINERS_RYUK_DISABLED=true
+#
+# Or prefix make targets directly:
+#
+#   DOCKER_HOST=unix://$$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true make coverage
+#   DOCKER_HOST=unix://$$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true make e2e
 
 SERVICES := mq streamer collector gateway
 COVERAGE_THRESHOLD ?= 90
@@ -9,7 +20,7 @@ PB_OUT    := pkg/pb
 
 .DEFAULT_GOAL := help
 
-.PHONY: help tools check-protoc proto build test coverage swagger lint tidy clean \
+.PHONY: help tools check-protoc proto build test coverage e2e swagger lint tidy clean \
         smoke smoke-% docker docker-% kind-up helm-install kind-down \
         dev-up dev-down
 
@@ -57,6 +68,9 @@ coverage: ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on internal/ and pk
 	awk "BEGIN{exit !($$total >= $(COVERAGE_THRESHOLD))}" || \
 		{ echo "FAIL: coverage $$total% < $(COVERAGE_THRESHOLD)%"; exit 1; }
 
+e2e: ## Run end-to-end pipeline tests (requires Docker / Rancher Desktop — see top-of-file env vars)
+	go test -race -tags=integration -count=1 -v ./test/e2e/...
+
 smoke: ## Run every phase's manual smoke check (all phases shipped so far)
 	@found=0; for f in scripts/smoke/phase*.sh; do \
 		[ -e "$$f" ] || continue; found=1; echo "== $$f =="; bash "$$f" || exit 1; done; \
@@ -76,8 +90,13 @@ dev-down: ## Stop local dev dependencies
 swagger: ## Auto-generate the OpenAPI spec from gateway code annotations
 	swag init -g cmd/gateway/main.go -o pkg/docs
 
-lint: ## Lint (golangci-lint, fallback go vet)
-	golangci-lint run ./... 2>/dev/null || go vet ./...
+lint: ## Lint (golangci-lint when installed, fallback go vet — G-2: errors are never swallowed)
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "golangci-lint not found — running go vet (install via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest)"; \
+		go vet ./...; \
+	fi
 
 tidy: ## go mod tidy
 	go mod tidy

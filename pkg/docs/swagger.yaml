@@ -64,6 +64,7 @@ paths:
         Returns time-series metric rows for a GPU ordered newest-first (API-02).
         Optional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).
         Result is capped at VANTAGE_GATEWAY_MAX_ROWS rows (OQ-1).
+        When the result is capped, X-Truncated: true and X-Row-Limit: <n> headers are set (M-4).
       parameters:
       - description: GPU UUID
         in: path
@@ -83,6 +84,13 @@ paths:
       responses:
         "200":
           description: OK
+          headers:
+            X-Row-Limit:
+              description: Maximum rows returned (VANTAGE_GATEWAY_MAX_ROWS)
+              type: string
+            X-Truncated:
+              description: true when the result was capped at X-Row-Limit rows
+              type: string
           schema:
             items:
               $ref: '#/definitions/gateway.GpuMetricResponse'
