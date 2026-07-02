@@ -13,8 +13,8 @@ services:
       POSTGRES_DB:       vantage
       POSTGRES_USER:     vantage
       POSTGRES_PASSWORD: vantage   # LOCAL DEV ONLY
-    ports:
-      - "5432:5432"
+    # No host port mapping: the harness asserts via the gateway (8090); an
+    # exposed 5432 would collide with the docker-compose.yml dev stack.
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
