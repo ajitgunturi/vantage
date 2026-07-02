@@ -164,7 +164,6 @@ func TestListGPUs_Empty(t *testing.T) {
 	body := w.Body.String()
 	// Must be exactly "[]" (not "null") — non-nil empty slice encodes as [].
 	assert.JSONEq(t, "[]", body, "empty table body must be []")
-	fmt.Printf("empty body: %q\n", body) // diagnostic
 }
 
 // ── Telemetry endpoint tests (API-02, API-03, OQ-1..4) ──────────────────────
@@ -262,9 +261,10 @@ func TestGetTelemetry_TimeWindow(t *testing.T) {
 
 	rows := decodeMetrics(t, w)
 	require.Len(t, rows, 2, "window [t2,t3] must return exactly 2 rows")
-	// First row must be t3 (newest, DESC order).
-	assert.True(t, rows[0].Timestamp.Equal(t3) || rows[0].Timestamp.After(t2),
-		"first row must be at or after start_time, ordered DESC")
+	// First row must be exactly t3 (newest in the window, DESC order).
+	// The weaker "at or after t2" check could pass even if DESC ordering is broken.
+	assert.True(t, rows[0].Timestamp.Equal(t3),
+		"first row must be t3 (newest in window), got %v", rows[0].Timestamp)
 }
 
 // TestGetTelemetry_PartialBounds tests OQ-3: partial time bounds are accepted.

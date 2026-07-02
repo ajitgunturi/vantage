@@ -290,6 +290,10 @@ even under at-least-once MQ redelivery. The Collector's `ON CONFLICT (gpu_id, me
 timestamp) DO NOTHING` SQL clause is the enforcement point. The E2E test (QA-03) proves this
 end-to-end under `test/e2e/pipeline_test.go` (run via `make e2e` — requires Docker/Rancher Desktop).
 
+> **Concurrent Streamers:** Under ≥2 simultaneous Streamer instances, nanosecond-level
+> timestamp collisions can cause `ON CONFLICT DO NOTHING` to silently drop a duplicate row.
+> This is accepted by design — see [`ADR-002`](docs/adr/ADR-002-natural-key-microsecond-collision.md).
+
 ### Verify Phase 3
 
 ```sh
@@ -451,3 +455,17 @@ leases, proving redelivery over the wire.
 
 Built phase-by-phase with the GSD framework. See [`CLAUDE.md`](CLAUDE.md) for conventions and the
 hard constraints (custom MQ from scratch, ≥90% coverage, auto-generated OpenAPI, time-series schema).
+
+---
+
+## Design records
+
+- [`ADR-001`](docs/adr/ADR-001-bidi-at-least-once-delivery.md) — Broker-side at-least-once delivery (bidi Consume stream with credit + ack)
+- [`ADR-002`](docs/adr/ADR-002-natural-key-microsecond-collision.md) — Natural-key microsecond collision under concurrent Streamers (accepted, by design)
+
+---
+
+## AI-assisted development
+
+This project was built with Claude (Anthropic) as primary implementation partner.
+All code was human-reviewed before commit. See [`docs/AI_USAGE.md`](docs/AI_USAGE.md) for scope, oversight practices, and known limitations.
