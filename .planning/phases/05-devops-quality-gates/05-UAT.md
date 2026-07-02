@@ -1,5 +1,5 @@
 ---
-status: partial
+status: diagnosed
 phase: 05-devops-quality-gates
 source: [05-VERIFICATION.md]
 started: 2026-07-02T18:14:53Z
@@ -40,5 +40,14 @@ blocked: 1
   reason: "User reported: seems stuck in - helm upgrade --install vantage deployments -f deployments/values.yaml / Release \"vantage\" does not exist. Installing it now."
   severity: major
   test: 1
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "Chicken-and-egg deadlock: migrate-job.yaml is a helm.sh/hook pre-install,pre-upgrade Job whose wait-for-postgres init container loops `until nc -z vantage-postgresql 5432`, but Helm applies pre-install hooks to completion BEFORE installing regular release manifests — including the Bitnami postgresql StatefulSet/Service. The Service the init container waits on is only created after the hook succeeds, so the hook can never complete. Helm prints nothing while waiting on hooks → silent hang until the default 5m timeout. The pre-upgrade path deadlocks identically (Postgres was never installed by the failed first attempt), so re-running cannot recover."
+  artifacts:
+    - path: "deployments/templates/migrate-job.yaml"
+      issue: "pre-install/pre-upgrade hook annotation + wait-for-postgres init container = circular wait against the same release's Postgres (hook blocks the resources it depends on)"
+    - path: "Makefile"
+      issue: "helm-install target has no explicit --timeout; default 5m makes the failure present as a silent hang (secondary, not causal)"
+  missing:
+    - "Break the hook/dependency cycle so Postgres exists before the migration Job waits on it (e.g. post-install,post-upgrade hook, or a regular non-hook Job with services tolerating unmigrated schema via readiness/retry)"
+    - "Loud failure mode: explicit helm --timeout and/or activeDeadlineSeconds on the migrate Job so a stuck migration fails visibly instead of hanging"
+    - "Recovery note: live release 'vantage' is stranded in pending-upgrade/failed state with the migrate Job running — must be cleared (helm uninstall or make kind-down) before retesting"
+  debug_session: .planning/debug/helm-install-hang.md
