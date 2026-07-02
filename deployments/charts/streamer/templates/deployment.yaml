@@ -1,0 +1,40 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-streamer
+  labels:
+    app.kubernetes.io/name: streamer
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: streamer
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: streamer
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: streamer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: STREAMER_MQ_ADDR
+              value: "{{ .Release.Name }}-mq:50051"
+            - name: STREAMER_CSV_PATH
+              value: "/data/dcgm_metrics.csv"
+            - name: STREAMER_LOOP_DELAY_MS
+              value: "5"
+          volumeMounts:
+            - name: fixture-csv
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: fixture-csv
+          configMap:
+            name: {{ .Release.Name }}-streamer-fixture
+{{- end }}
