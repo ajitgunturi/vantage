@@ -11,7 +11,7 @@
 - [x] **Phase 2: Storage Foundation — Schema + Connection Pool** - Time-series PostgreSQL schema with an EXPLAIN-verified composite index, shared via pgxpool (completed 2026-06-29)
 - [x] **Phase 3: Pipeline — Streamer + Collector + Integration** - Live CSV telemetry flowing end-to-end into PostgreSQL under concurrency (completed 2026-06-29)
 - [x] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry (completed 2026-06-30)
-- [ ] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar
+- [x] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar (completed 2026-07-02)
 - [ ] **Phase 6: MQ Durability — Opt-in WAL Persistence** - Crash-durable broker mode behind the Store interface; at-least-once via replay
 
 ## Phase Details
@@ -123,7 +123,7 @@ Plans:
   2. The MQ Deployment runs as a single replica (`replicas: 1`) with `strategy: Recreate` — no rolling-update split-brain of the in-memory broker.
   3. The Makefile exposes `proto`, `build`, `test`, `coverage`, and `swagger` targets; unit tests span all services and the coverage gate enforces ≥90% line coverage.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 **Wave 1**
 
 - [x] 05-01-PLAN.md — Five multi-stage Dockerfiles + Makefile deploy/kind-load/soak/test-harness plumbing (OPS-01, OPS-05) [wave 1]
@@ -135,7 +135,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 05-04-PLAN.md — kind E2E smoke-05 + soak + README workflow (OPS-03) [wave 3]
+- [x] 05-04-PLAN.md — kind E2E smoke-05 + soak + README workflow (OPS-03) [wave 3]
 
 ### Phase 6: MQ Durability — Opt-in WAL Persistence
 
@@ -160,7 +160,7 @@ Plans:
 | 2. Storage Foundation — Schema + Connection Pool | 2/2 | Complete   | 2026-06-29 |
 | 3. Pipeline — Streamer + Collector + Integration | 4/4 | Complete   | 2026-06-29 |
 | 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
-| 5. DevOps + Quality Gates | 3/4 | In Progress|  |
+| 5. DevOps + Quality Gates | 4/4 | Complete   | 2026-07-02 |
 | 6. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
 
 ## Coverage
