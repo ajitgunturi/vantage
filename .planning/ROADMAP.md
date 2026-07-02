@@ -137,6 +137,10 @@ Plans:
 
 - [x] 05-04-PLAN.md — kind E2E smoke-05 + soak + README workflow (OPS-03) [wave 3]
 
+**Gap closure** *(from UAT: helm-install pre-install-hook deadlock)*
+
+- [ ] 05-05-PLAN.md — Fix migrate-job hook deadlock: pre→post-install,post-upgrade + activeDeadlineSeconds + helm --timeout; re-prove kind E2E (OPS-02, OPS-03) [wave 1]
+
 ### Phase 6: MQ Durability — Opt-in WAL Persistence
 
 **Goal**: With durability enabled via config, the MQ persists produced messages to a write-ahead log and replays them on restart, so a broker crash loses no un-consumed message — while the in-memory default stays byte-for-byte unchanged.
