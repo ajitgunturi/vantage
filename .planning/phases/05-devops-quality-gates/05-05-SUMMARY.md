@@ -152,3 +152,10 @@ No new network endpoints, auth paths, file access patterns, or schema changes in
 ---
 *Phase: 05-devops-quality-gates*
 *Completed: 2026-07-03*
+
+## Self-Check: PASSED
+
+- `05-05-SUMMARY.md` — FOUND at `.planning/phases/05-devops-quality-gates/05-05-SUMMARY.md`
+- Commit `4bf43e8` (Task 1: migrate-job hook fix) — FOUND
+- Commit `59d20b4` (Task 2: helm --timeout) — FOUND
+- Commit `7161f64` (docs: SUMMARY + STATE + ROADMAP) — FOUND
