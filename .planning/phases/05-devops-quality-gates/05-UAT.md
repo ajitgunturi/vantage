@@ -1,42 +1,48 @@
 ---
-status: diagnosed
+status: testing
 phase: 05-devops-quality-gates
 source: [05-VERIFICATION.md]
 started: 2026-07-02T18:14:53Z
-updated: 2026-07-03T00:05:00Z
+updated: 2026-07-03T00:00:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 2
+name: Sustained soak
+expected: |
+  make soak (defaults 60s / 3 streamers; optionally SOAK_STREAMERS=10) — row count grows,
+  produced_total >= consumed_total, queue depth stays below capacity, streamer restored to 1
+  replica on exit
+awaiting: user response
 
 ## Tests
 
 ### 1. kind E2E deploy + smoke
 expected: make kind-up && make deploy && make smoke-05 passes end-to-end — pods Running, real rows served, independent MQ rollout demonstrated
-result: issue
-reported: "seems stuck in - helm upgrade --install vantage deployments -f deployments/values.yaml / Release \"vantage\" does not exist. Installing it now."
-severity: major
+result: passed
+note: "Re-verified 2026-07-03 after gap-closure plan 05-05 (migrate Job moved to post-install,post-upgrade hook + activeDeadlineSeconds 120; helm-install --timeout 3m). Human confirmed on clean kind cluster: make deploy returned within 3m, make smoke-05 PASS including mq-only targeted upgrade."
 
 ### 2. Sustained soak
 expected: make soak (defaults 60s / 3 streamers; optionally SOAK_STREAMERS=10) — row count grows, produced_total >= consumed_total, queue depth stays below capacity, streamer restored to 1 replica on exit
-result: blocked
-blocked_by: prior-phase
-reason: "make deploy hangs at helm upgrade --install (same hang as Test 1) — kind loads and helm dependency update complete, then no further output; soak cannot run without a deployed release"
+result: pending
+note: "Unblocked by 05-05 — make deploy now completes, so soak can run against any deployed cluster. Marked optional at the gap-closure checkpoint; not yet observed live."
 
 ## Summary
 
 total: 2
-passed: 0
-issues: 1
-pending: 0
+passed: 1
+issues: 0
+pending: 1
 skipped: 0
-blocked: 1
+blocked: 0
 
 ## Gaps
 
 - truth: "make kind-up && make deploy && make smoke-05 passes end-to-end — migration hook completes, all four Deployments Available, gateway serves real rows, targeted mq upgrade rolls only MQ"
-  status: failed
+  status: resolved
+  resolved_by: 05-05
+  resolution: "Hook phase moved pre-install,pre-upgrade → post-install,post-upgrade (Postgres now exists before wait-for-postgres polls it); activeDeadlineSeconds: 120 on the Job and --timeout 3m on helm-install bound any residual stall to a loud failure. Human re-verified live on clean kind cluster 2026-07-03: deploy returns, smoke-05 passes."
   reason: "User reported: seems stuck in - helm upgrade --install vantage deployments -f deployments/values.yaml / Release \"vantage\" does not exist. Installing it now."
   severity: major
   test: 1
@@ -46,8 +52,4 @@ blocked: 1
       issue: "pre-install/pre-upgrade hook annotation + wait-for-postgres init container = circular wait against the same release's Postgres (hook blocks the resources it depends on)"
     - path: "Makefile"
       issue: "helm-install target has no explicit --timeout; default 5m makes the failure present as a silent hang (secondary, not causal)"
-  missing:
-    - "Break the hook/dependency cycle so Postgres exists before the migration Job waits on it (e.g. post-install,post-upgrade hook, or a regular non-hook Job with services tolerating unmigrated schema via readiness/retry)"
-    - "Loud failure mode: explicit helm --timeout and/or activeDeadlineSeconds on the migrate Job so a stuck migration fails visibly instead of hanging"
-    - "Recovery note: live release 'vantage' is stranded in pending-upgrade/failed state with the migrate Job running — must be cleared (helm uninstall or make kind-down) before retesting"
-  debug_session: .planning/debug/helm-install-hang.md
+  debug_session: .planning/debug/resolved/helm-install-hang.md
