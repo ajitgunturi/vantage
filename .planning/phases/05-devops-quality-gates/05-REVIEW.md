@@ -70,12 +70,37 @@ already exported — directly contradicting the top-of-file comment
 `make` target breaks for any other machine, Docker Desktop user, or CI runner.
 The `test-harness` target (`Makefile:143`) uses `$$HOME` for the same path,
 proving the intent and highlighting the inconsistency.
-**Fix:**
+**Fix (agreed direction — per-machine `.env` with self-templating check):**
+Move machine-specific values out of the Makefile into a gitignored `.env`. On
+first run, the Makefile detects the missing file, writes a template with empty
+values, and tells the runner to fill it in. Docker-dependent targets validate
+the values are non-empty before proceeding:
 ```make
-export DOCKER_HOST ?= unix://$(HOME)/.rd/docker.sock
-export TESTCONTAINERS_RYUK_DISABLED ?= true
+# ── Machine-local env (.env, gitignored) ────────────────────────────────────
+ifeq ($(wildcard .env),)
+$(shell printf 'DOCKER_HOST=\nTESTCONTAINERS_RYUK_DISABLED=true\n' > .env)
+$(warning Created .env template — set DOCKER_HOST (e.g. unix://$$HOME/.rd/docker.sock))
+endif
+include .env
+export DOCKER_HOST TESTCONTAINERS_RYUK_DISABLED
+
+check-env: ## Verify machine-local .env values are set
+	@[ -n "$(DOCKER_HOST)" ] || { \
+		echo "ERROR: DOCKER_HOST is empty — edit .env"; \
+		echo "  Rancher Desktop: unix://$$HOME/.rd/docker.sock"; \
+		echo "  Docker Desktop:  unix://$$HOME/.docker/run/docker.sock"; \
+		exit 1; }
 ```
-`?=` respects the caller's environment; `$(HOME)` removes the hardcoded user.
+Then: (a) delete the hardcoded exports at lines 25-26; (b) add `check-env` as a
+prerequisite to every Docker-dependent target (`test`, `coverage`, `e2e`,
+`docker`, `docker-%`, `kind-up`, `kind-load`, `deploy`, `dev-up`, `soak`,
+`test-harness`) — pure-Go targets (`build`, `lint`, `proto`, `swagger`) must
+NOT require it; (c) drop the now-redundant inline env on `test-harness`
+(line 143); (d) add `.env` to `.gitignore` and update the top-of-file comment
+(lines 5-14) to describe the `.env` workflow. Note the template is written at
+Makefile *parse* time (any target, including `help`, triggers creation) —
+that is intentional: it surfaces the prompt immediately, and empty values only
+hard-fail via `check-env` on targets that actually need Docker.
 
 ### WR-02: OPS-03 smoke check is vacuous — the "targeted upgrade" is a no-op
 
@@ -171,10 +196,12 @@ as build context: `.git/`, `bin/`, `coverage.out`, and the local gitignored
 `dcgm_metrics_20250718_134233.csv` (present at repo root). Slow context
 uploads, cache-busting on unrelated changes, and repo history baked into
 intermediate layers.
-**Fix:** Add `.dockerignore`:
+**Fix:** Add `.dockerignore` (include `.env` from the WR-01 fix so the
+machine-local file never enters a build context):
 ```
 .git
 .planning
+.env
 bin/
 coverage.*
 dcgm_metrics_*.csv
