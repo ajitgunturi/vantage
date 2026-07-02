@@ -67,10 +67,10 @@
 
 ### Quality (QA)
 
-- [ ] **QA-01**: Unit tests across all services
+- [x] **QA-01**: Unit tests across all services
 - [x] **QA-02**: Race-detector tests for MQ concurrency proving N produced = N consumed across K consumers
 - [x] **QA-03**: Integration tests (end-to-end CSV→MQ→Collector→Postgres; gateway against a seeded DB)
-- [ ] **QA-04**: ≥90% line coverage enforced via the Makefile coverage gate
+- [x] **QA-04**: ≥90% line coverage enforced via the Makefile coverage gate
 - [ ] **QA-05**: Crash-recovery test — after a simulated broker restart in WAL mode, no un-consumed message is lost (replay verified)
 
 ### Documentation & Manual Verification (DOC / QA) — cross-cutting cadence
@@ -150,8 +150,8 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | OPS-03 | Phase 5 | Complete |
 | OPS-04 | Phase 5 | Complete |
 | OPS-05 | Phase 5 | Complete |
-| QA-01 | Phase 5 | Pending |
-| QA-04 | Phase 5 | Pending |
+| QA-01 | Phase 5 | Complete |
+| QA-04 | Phase 5 | Complete |
 | DUR-01 | Phase 6 | Pending |
 | DUR-02 | Phase 6 | Pending |
 | QA-05 | Phase 6 | Pending |
