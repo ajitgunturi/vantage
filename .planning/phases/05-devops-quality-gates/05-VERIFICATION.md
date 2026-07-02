@@ -1,7 +1,7 @@
 ---
 phase: 05-devops-quality-gates
 verified: 2026-07-03T00:00:00Z
-status: human_needed
+status: passed
 score: 16/17 must-haves verified
 behavior_unverified: 1
 overrides_applied: 0
@@ -9,15 +9,18 @@ re_verification:
   previous_status: human_needed
   previous_score: 15/17
   gaps_closed:
+
     - "kind E2E: make kind-up && make deploy && make smoke-05 — helm hook deadlock fixed (05-05); human verified 2026-07-03: make deploy returned within 3m, make smoke-05 PASS including OPS-03 targeted mq upgrade"
   gaps_remaining: []
   regressions: []
 behavior_unverified_items:
+
   - truth: "make soak sustains the pipeline for a configurable duration with a configurable streamer replica count, asserting row counts grow and MQ inspect shows no runaway depth / loss"
     test: "make soak (optionally SOAK_STREAMERS=10, SOAK_DURATION=60)"
     expected: "Row count in Postgres grows monotonically; produced_total >= consumed_total in MQ inspect; queue depth stays below capacity; streamer replica count is restored to 1 on exit"
     why_human: "Requires a live kind cluster with all four Deployments Available; cannot be proved by code inspection. Unblocked by 05-05 (deploy no longer hangs) but the endurance run itself has not been executed — UAT 05-UAT.md still records result: blocked for Test 2."
 human_verification:
+
   - test: "Sustained soak — make soak against the deployed kind cluster"
     expected: "Row count grows, produced_total >= consumed_total, queue depth stays bounded, streamer restored to 1 replica on exit"
     why_human: "Live kind cluster required; behavior-dependent on actual pipeline throughput and MQ depth invariants at runtime. Marked optional at the 05-05 gap-closure checkpoint but remains an unverified plan must-have (05-04-PLAN truth 4)."
@@ -33,10 +36,12 @@ human_verification:
 ## Re-Verification Context
 
 **Prior verification (2026-07-02):** status=human_needed, score=15/17. Two human items:
+
 1. kind E2E: `make kind-up && make deploy && make smoke-05` — failed in UAT Test 1 (silent hang at helm upgrade --install due to pre-install hook circular wait on Postgres).
 2. Soak: blocked by Test 1 failure.
 
 **05-05 gap closure (2026-07-03):**
+
 - `deployments/templates/migrate-job.yaml`: hook moved from `pre-install,pre-upgrade` to `post-install,post-upgrade`; `activeDeadlineSeconds: 120` added on Job spec.
 - `Makefile` `helm-install` target: `--timeout 3m` added (no `--wait`).
 - Human checkpoint (Task 3): human confirmed make deploy returned within 3m, make smoke-05 PASS.
@@ -98,6 +103,7 @@ All three ROADMAP success criteria: VERIFIED.
 ### Human Checkpoint Evidence (Task 3 — 05-05-SUMMARY.md D3)
 
 From `05-05-SUMMARY.md` frontmatter coverage.D3:
+
 - `verification.kind: manual_procedural`
 - `ref: "Human approval 2026-07-03: make deploy returned within 3m timeout, make smoke-05 PASS"`
 - `status: pass`
@@ -136,10 +142,12 @@ No new debt markers (TBD/FIXME/XXX) introduced by the 05-05 gap closure in `depl
 
 **Test:** With kind cluster deployed (`make deploy` having succeeded), run `make soak` (optionally `SOAK_STREAMERS=10 make soak` or `SOAK_DURATION=120 make soak`)
 **Expected:**
+
 - Row count in Postgres grows monotonically over the soak duration
 - `produced_total >= consumed_total` in MQ `/api/v1/queue/inspect`
 - Queue depth stays below the bounded capacity ceiling
 - Streamer replica count restored to 1 after the soak exits
+
 **Why human:** Requires a live kind cluster with all four Deployments Available. The soak script (`scripts/soak.sh`) is syntactically valid and wired to `make soak`, but the actual pipeline throughput behavior — row growth, depth invariants, replica restoration — can only be observed in a running cluster.
 
 **Context:** Explicitly optional in the 05-05 gap-closure checkpoint. `05-UAT.md` records Test 2 as `blocked` (by the now-fixed Test 1). The 05-05 summary states Test 2 is "unblocked" but does not record it as run or passed.

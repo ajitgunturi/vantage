@@ -21,19 +21,20 @@ with **no message loss or duplication** across horizontally-scaled producers and
 - [x] gRPC `Produce` (unary) and `Consume` (**bidi stream**, ADR-001); concurrent collectors get unique messages in steady state, with **broker-side at-least-once** (per-message ack + client credit + redelivery-on-disconnect) _(Validated in Phase 01.1 — proven by `-race -count=50` + `make smoke-01` redelivered_total>0)_
 - [x] HTTP `GET /api/v1/queue/inspect` returns queue status JSON _(Validated in Phase 1; at-least-once counters delivered/consumed=acks/redelivered/in_flight added in Phase 01.1)_
 
+- [x] PostgreSQL time-series schema with composite index `(gpu_id, timestamp DESC)` _(Validated in Phase 2 — EXPLAIN-proven index scan at 100k rows)_
+- [x] Consumer-side idempotency (DB unique constraint + collector upsert) so at-least-once replay cannot duplicate rows _(Validated in Phases 2+3 — `uq_gpu_metrics_natural_key` + `ON CONFLICT DO NOTHING`, exactly-once E2E proven)_
+- [x] Streamer loops the DCGM CSV indefinitely, restamps current timestamp, publishes via gRPC; up to 10 instances _(Validated in Phase 3; 10-streamer soak re-proven in Phase 5)_
+- [x] Collector consumes the MQ stream and batch-inserts to PostgreSQL via pgxpool _(Validated in Phase 3)_
+- [x] API Gateway exposes `GET /api/v1/gpus`, `/gpus/{id}/telemetry`, and time-window filtering _(Validated in Phase 4)_
+- [x] OpenAPI spec fully auto-generated from `swag` code annotations _(Validated in Phase 4)_
+- [x] Multi-stage Dockerfile + Helm sub-chart per service; each builds & deploys independently _(Validated in Phase 5 — kind E2E + targeted mq-only upgrade demo, human-verified UAT)_
+- [x] Makefile targets: proto, build, test, coverage (≥90% gate), swagger _(Validated in Phase 5)_
+- [x] Unit + integration tests; race-detector tests for MQ concurrency; ≥90% coverage _(Validated in Phase 5 — QA-01/QA-04 closed at 90.3%)_
+- [x] Living README quickstart + runnable manual smoke suite (`make smoke`) + docker-compose dev stack, grown incrementally each phase _(Validated through Phase 5 — smoke-01..05, soak, test-harness)_
+
 ### Active
 
 - [ ] MQ storage behind a `Store` interface: in-memory default, plus an opt-in WAL persistence backend (batched group-commit fsync + replay-on-restart, at-least-once)
-- [ ] Consumer-side idempotency (DB unique constraint + collector upsert) so at-least-once replay cannot duplicate rows
-- [ ] Streamer loops the DCGM CSV indefinitely, restamps current timestamp, publishes via gRPC; up to 10 instances
-- [ ] Collector consumes the MQ stream and batch-inserts to PostgreSQL via pgxpool
-- [ ] PostgreSQL time-series schema with composite index `(gpu_id, timestamp DESC)`
-- [ ] API Gateway exposes `GET /api/v1/gpus`, `/gpus/{id}/telemetry`, and time-window filtering
-- [ ] OpenAPI spec fully auto-generated from `swag` code annotations
-- [ ] Multi-stage Dockerfile + Helm sub-chart per service; each builds & deploys independently
-- [ ] Makefile targets: proto, build, test, coverage (≥90% gate), swagger
-- [ ] Unit + integration tests; race-detector tests for MQ concurrency; ≥90% coverage
-- [ ] Living README quickstart + runnable manual smoke suite (`make smoke`) + docker-compose dev stack, grown incrementally each phase
 
 ### Out of Scope
 
@@ -76,7 +77,10 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | **Bidi `Consume` + broker-side at-least-once** (Phase 01.1, ADR-001) — DEVIATION | Brief specifies *server-side streaming* `Consume` and the project had placed per-message ack out of scope. A reproduced defect (produce 1000, short consumer reads 20 → ~493 silently lost on disconnect) motivated moving at-least-once into the broker: bidi stream + per-message ack + client-driven credit + redelivery-on-disconnect. Owner-approved, documented deviation; in-memory/no-disk/single-replica constraints unchanged. Delivery-level at-least-once now lives here; Phase 6 WAL narrows to crash durability. See `docs/adr/ADR-001-bidi-at-least-once-delivery.md` | — Pending |
 | Vertical-MVP phase structure | Get a running end-to-end pipeline early, then harden slice by slice | — Pending |
 | `swag` for OpenAPI generation | Spec mandates fully auto-generated docs from code annotations | — Pending |
-| Living README + runnable manual smoke suite, built incrementally per phase | Readers can clone → run → see each component work; user wants a hands-on suite to verify each phase's deliverables. Makefile-driven shell smoke scripts + docker-compose dev stack; harness established in Phase 2 (first Postgres/Docker phase, with Phase-1 MQ backfill) | — Pending |
+| Living README + runnable manual smoke suite, built incrementally per phase | Readers can clone → run → see each component work; user wants a hands-on suite to verify each phase's deliverables. Makefile-driven shell smoke scripts + docker-compose dev stack; harness established in Phase 2 (first Postgres/Docker phase, with Phase-1 MQ backfill) | Good — smoke-01..05 + soak + live-infra harness all green through Phase 5 |
+| Migrate hook moved `pre-install` → `post-install,post-upgrade` (Phase 5, deviation from locked D-09) | Pre-install hook's wait-for-postgres init container deadlocked against the same release's Postgres (Helm runs pre-install hooks before installing manifests). Post-install preserves intent — dedicated Job per release op, Helm blocks until done; services tolerate the brief pre-migration window | Good — deploy + smoke-05 human-verified on clean kind cluster |
+| Bounded loud failure on deploy-critical Jobs | `activeDeadlineSeconds` on the migrate Job spec + explicit `--timeout` on helm-install convert silent hangs into named, bounded errors | Good — raised to 300s/6m (WR-04) for cold image pulls |
+| MQ `replicas: 1` + `strategy: Recreate` hardcoded in template, not values | In-memory broker must never scale or rolling-update (split-brain); making it non-overridable enforces the invariant at the chart layer | Good — T-05-03 closed |
 
 ## Evolution
 
@@ -96,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-28 after Phase 01.1 (MQ at-least-once delivery) completed and verified*
+*Last updated: 2026-07-02 after Phase 5 (DevOps + Quality Gates) completed and verified — only Phase 6 (WAL durability) remains in v1*

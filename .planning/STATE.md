@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 05
-current_phase_name: devops-quality-gates
-status: executing
-stopped_at: "Completed 05-05-PLAN.md — helm hook deadlock fixed, kind E2E verified"
-last_updated: "2026-07-02T18:59:38.953Z"
+current_phase: 6
+current_phase_name: MQ Durability — Opt-in WAL Persistence
+status: planning
+stopped_at: Phase 5 complete (UAT 2/2, security verified) — ready to plan Phase 6
+last_updated: "2026-07-02T19:54:22.061Z"
 progress:
   total_phases: 7
   completed_phases: 6
@@ -21,25 +21,25 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 05 — devops-quality-gates
+- **Current focus:** Phase 6 — MQ Durability (opt-in WAL persistence) — last phase of v1
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 05 (devops-quality-gates) — EXECUTING
-- **Plan:** 2 of 5
-- **Status:** Ready to execute
-- **Progress:** [██████████] 100%
+- **Phase:** 6 — MQ Durability — Opt-in WAL Persistence
+- **Plan:** Not started
+- **Status:** Ready to plan
+- **Progress:** [████████████████████] 23/23 plans (100% of planned; Phase 6 plans TBD)
 
 ```
-[ █▱▱▱▱▱ ] 1/6 phases
+[ ██████▱ ] 6/7 phases
 ```
 
 ## Performance Metrics
 
-- Phases complete: 1/6
-- Requirements delivered: 9/38 (MQ-01..08, QA-02)
-- Plans executed: 3
+- Phases complete: 6/7 (1, 01.1, 2, 3, 4, 5)
+- Requirements delivered: 40/43 (all except DUR-01, DUR-02, QA-05 — Phase 6)
+- Plans executed: 23
 
 ## Accumulated Context
 
@@ -48,17 +48,18 @@ progress:
 - Vertical-MVP phase structure; 5 phases derived from the hard dependency chain (proto → MQ core → storage → pipeline → gateway → devops).
 - Storage lifted into its own foundation phase (Phase 2) because the schema + pgxpool unblocks both the Collector (Phase 3) and the Gateway (Phase 4).
 - Custom MQ on native Go concurrency only (channels / `sync.RWMutex` / ring buffer) — no third-party brokers. In-memory is the default; an opt-in WAL persistence backend (behind a `Store` interface) adds crash durability — batched group-commit fsync + replay-on-restart, at-least-once. Built as Phase 6; the interface seam lands in Phase 1.
+- **Phase 5:** migrate hook moved `pre-install` → `post-install,post-upgrade` (deviation from locked D-09, owner-approved) — pre-install deadlocked against the same release's Postgres. Bounded loud failure convention: `activeDeadlineSeconds: 300` on the Job + `--timeout 6m` on helm-install (WR-04).
+- **Phase 5:** MQ `replicas: 1` + `strategy: Recreate` hardcoded in the chart template (not values-overridable) — chart-layer enforcement of the single-replica broker invariant.
+- **Phase 5:** SECURITY.md verified — 17 threats closed, 0 open (ASVS L1, plan-time register).
 
 ### Open Decisions (per-phase, do not resolve at roadmap level)
 
 - **Phase 1 (RESOLVED):** MQ primitive = bounded ring buffer + `sync.Mutex` (in `internal/queue`); drop-oldest buffer policy (proven by `TestRingStore_DropOldest`); proto tooling = raw `protoc` (single `api/proto/mq.proto`, `paths=source_relative`), not `buf`.
-- **Phase 3:** Collector batch size / flush interval and Streamer rate limit — tune empirically against DCGM CSV row rate before fixing Helm values in Phase 5.
+- **Phase 3 (RESOLVED in Phase 5):** Collector batch/flush and Streamer rate fixed in Helm values (`deployments/values.yaml`); soak-proven at 3 and 10 streamers.
 
 ### Active TODOs
 
-- Phase 2 context gathered (`/gsd-discuss-phase 2` done). Next: `/gsd-plan-phase 2` (storage foundation — time-series schema with composite index `(gpu_id, timestamp DESC)` + pgxpool).
-- ✅ **RESOLVED — `make build` carry-over:** Makefile `build` target now skips service dirs that don't exist yet (`-- skip streamer ... --`), so `make build` is green from Phase 1 on; services slot in as they land.
-- **New cross-cutting convention (DOC-01/QA-06/OPS-06):** living README + runnable manual smoke suite (`make smoke` / `make smoke-NN`), grown each phase; docker-compose dev stack arrives in Phase 2. Phase-1 backfill landed (README quickstart + `scripts/smoke/phase01-mq.sh` + `mqprobe` gRPC client).
+- Plan Phase 6 (`/gsd-plan-phase 6`) — WAL-backed `Store`: config flag, group-commit fsync, replay-on-restart, crash-recovery test (DUR-01, DUR-02, QA-05).
 
 ### Blockers
 
@@ -81,13 +82,13 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-07-02T18:59:38.946Z
-**Stopped at:** Completed 05-04-PLAN.md
+**Last session:** 2026-07-02T19:55:00Z
+**Stopped at:** Phase 5 complete (UAT 2/2 passed, security verified), ready to plan Phase 6
 **Resume file:** None
 
-- **Last action:** Quick task 260702-ku8 complete (2026-07-02) — all mid-assignment review gaps fixed: C-1 Collector ack-on-persist-failure (silent data loss), M-1 e2e exact-count + `make e2e` target, M-2 MQ missed-wakeup race, M-3 MQ shutdown hang (shutdownCh wired), M-4 gateway X-Truncated header, M-5 ADR-002 (µs collision accepted), M-6 streamer retry/backoff, G-1..G-4 (backoff escalation, honest lint gate, Docker-env docs, docs/AI_USAGE.md + DOC-02). Gates green: build/test/coverage 90.3%/lint.
-- **Next action:** Execute Phase 3 (`/gsd-execute-phase 3`). Wave 1 = 03-01 (pkg/models) ∥ 03-02 (Streamer); Wave 2 = 03-03 (Collector); Wave 3 = 03-04 (E2E + smoke-03). Integration/E2E need Rancher Docker env: `DOCKER_HOST=unix://$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`. Service logic lives in internal/streamer + internal/collector (thin cmd wrappers) so the ≥90% coverage gate reaches it.
-- **Notes:** Phase 3 locked decision: use INSERT...ON CONFLICT (not CopyFrom) for idempotent Collector upserts against uq_gpu_metrics_natural_key. Streamer must restamp at RFC3339Nano in Phase 3. Rancher Desktop docker socket: set DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true for integration tests.
+- **Last action:** Phase 5 UAT completed 2026-07-02 — Test 1 (kind E2E deploy + smoke-05) and Test 2 (sustained soak: rows grew, produced≥consumed, bounded depth, streamer restored) both human-verified. 05-SECURITY.md written: 17 threats closed / 0 open. VERIFICATION.md canonicalized to passed; phase marked complete in ROADMAP/STATE; PROJECT.md evolved (10 requirements moved to Validated; only WAL remains Active).
+- **Next action:** Plan Phase 6 (`/gsd-plan-phase 6`) — WAL-backed `Store` behind the Phase-1 interface seam: config-flag opt-in, batched group-commit fsync, replay-on-restart, crash-recovery test. In-memory default must stay byte-for-byte unchanged.
+- **Notes:** Machine-local `.env` must carry `DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock` (three slashes — scheme + absolute path) + `TESTCONTAINERS_RYUK_DISABLED=true`; committed `.env.example` documents this. Phase 6 relies on: Phase 2 `uq_gpu_metrics_natural_key` + Phase 3 idempotent upsert for safe at-least-once replay.
 
 ---
 *State initialized: 2026-06-27*

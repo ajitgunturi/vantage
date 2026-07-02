@@ -164,7 +164,7 @@ Plans:
 | 2. Storage Foundation — Schema + Connection Pool | 2/2 | Complete   | 2026-06-29 |
 | 3. Pipeline — Streamer + Collector + Integration | 4/4 | Complete   | 2026-06-29 |
 | 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
-| 5. DevOps + Quality Gates | 5/5 | Complete   | 2026-07-02 |
+| 5. DevOps + Quality Gates | 5/5 | Complete    | 2026-07-02 |
 | 6. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
 
 ## Coverage
