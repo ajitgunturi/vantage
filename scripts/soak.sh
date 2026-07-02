@@ -79,12 +79,22 @@ pass "streamer scaled to ${SOAK_STREAMERS} replicas (start rows: ${START_ROWS}, 
 
 # ── Step 5: sustain and poll — depth must stay bounded the whole time ────────
 MAX_DEPTH=0
+INSPECT_FAILS=0
 END=$(( $(date +%s) + SOAK_DURATION ))
 while [ "$(date +%s)" -lt "$END" ]; do
-  DEPTH=$(inspect_field depth || echo 0)
-  [ "$DEPTH" -gt "$MAX_DEPTH" ] && MAX_DEPTH=$DEPTH
-  if [ "$DEPTH" -ge "$CAPACITY" ]; then
-    fail "queue depth ${DEPTH} hit capacity ${CAPACITY} — runaway growth (collector not keeping up)"
+  # Distinguish fetch failure from a real depth reading: a dead port-forward,
+  # MQ pod restart, or JSON parse error must NOT be mapped to depth 0, or the
+  # bounded-depth assertion passes vacuously while monitoring is blind.
+  # Tolerate 2 consecutive blips (transient socket, pod restart), fail on the 3rd.
+  if DEPTH=$(inspect_field depth); then
+    INSPECT_FAILS=0
+    [ "$DEPTH" -gt "$MAX_DEPTH" ] && MAX_DEPTH=$DEPTH
+    if [ "$DEPTH" -ge "$CAPACITY" ]; then
+      fail "queue depth ${DEPTH} hit capacity ${CAPACITY} — runaway growth (collector not keeping up)"
+    fi
+  else
+    INSPECT_FAILS=$((INSPECT_FAILS + 1))
+    [ "$INSPECT_FAILS" -ge 3 ] && fail "MQ inspect unreachable ${INSPECT_FAILS}x in a row — port-forward dead?"
   fi
   sleep 5
 done
@@ -92,8 +102,10 @@ pass "depth stayed bounded (max ${MAX_DEPTH} / capacity ${CAPACITY})"
 
 # ── Step 6: final reconciliation ──────────────────────────────────────────────
 END_ROWS=$(row_count)
-PRODUCED=$(inspect_field produced_total)
-CONSUMED=$(inspect_field consumed_total)
+PRODUCED=$(inspect_field produced_total) \
+  || fail "MQ inspect unreachable reading produced_total — port-forward dead?"
+CONSUMED=$(inspect_field consumed_total) \
+  || fail "MQ inspect unreachable reading consumed_total — port-forward dead?"
 
 [ "$END_ROWS" -gt "$START_ROWS" ] \
   || fail "row count did not grow (start ${START_ROWS}, end ${END_ROWS}) — pipeline stalled"
