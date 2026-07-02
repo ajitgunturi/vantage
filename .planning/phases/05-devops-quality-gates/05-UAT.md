@@ -1,20 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 05-devops-quality-gates
 source: [05-VERIFICATION.md]
 started: 2026-07-02T18:14:53Z
-updated: 2026-07-03T00:00:00Z
+updated: 2026-07-02T19:50:44Z
 ---
 
 ## Current Test
 
-number: 2
-name: Sustained soak
-expected: |
-  make soak (defaults 60s / 3 streamers; optionally SOAK_STREAMERS=10) — row count grows,
-  produced_total >= consumed_total, queue depth stays below capacity, streamer restored to 1
-  replica on exit
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -25,15 +19,15 @@ note: "Re-verified 2026-07-03 after gap-closure plan 05-05 (migrate Job moved to
 
 ### 2. Sustained soak
 expected: make soak (defaults 60s / 3 streamers; optionally SOAK_STREAMERS=10) — row count grows, produced_total >= consumed_total, queue depth stays below capacity, streamer restored to 1 replica on exit
-result: pending
-note: "Unblocked by 05-05 — make deploy now completes, so soak can run against any deployed cluster. Marked optional at the gap-closure checkpoint; not yet observed live."
+result: passed
+note: "Human confirmed 2026-07-02: make soak ran against the deployed kind cluster (after fixing machine-local DOCKER_HOST scheme in .env) — rows grew, produced_total >= consumed_total, depth below capacity, streamer restored to 1 replica."
 
 ## Summary
 
 total: 2
-passed: 1
+passed: 2
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
