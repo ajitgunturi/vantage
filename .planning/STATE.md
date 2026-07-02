@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 5
-current_phase_name: DevOps + Quality Gates
+current_phase: 05
+current_phase_name: devops-quality-gates
 status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-07-02T17:50:20.218Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-07-02T17:55:49.057Z"
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 22
+  completed_plans: 19
   percent: 71
 ---
 
@@ -21,15 +21,15 @@ progress:
 
 - **What:** Production-grade, horizontally-scalable GPU telemetry pipeline with a custom from-scratch in-memory message queue, built as four independent Go microservices on Kubernetes.
 - **Core value:** `CSV → Streamer → custom MQ → Collector → PostgreSQL → API Gateway → client` works reliably under concurrency — no message loss or duplication across horizontally-scaled producers and consumers.
-- **Current focus:** Phase 04 — api-gateway-openapi-docs
+- **Current focus:** Phase 05 — devops-quality-gates
 
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 5 — DevOps + Quality Gates
-- **Plan:** Not started
+- **Phase:** 05 (devops-quality-gates) — EXECUTING
+- **Plan:** 2 of 4
 - **Status:** Ready to execute
-- **Progress:** [██████████] 100%
+- **Progress:** [█████████░] 86%
 
 ```
 [ █▱▱▱▱▱ ] 1/6 phases
@@ -70,6 +70,7 @@ progress:
 |---|-------------|------|--------|-----------|
 | 260702-ku8 | fix all the gaps identified as part of this review (mid-assignment 4-agent review: C-1 ack-on-persist data loss, MQ liveness M-2/M-3, gateway M-4, ADR-002, AI_USAGE docs) | 2026-07-02 | 2a2a1f7 | [260702-ku8-fix-all-the-gaps-identified-as-part-of-t](./quick/260702-ku8-fix-all-the-gaps-identified-as-part-of-t/) |
 | fast | smoke phase03: read count(*)/count(distinct) from one snapshot — two-query MVCC race falsely failed the exactly-once check | 2026-07-02 | b89753c | — |
+| Phase 05 P01 | 8 min | 2 tasks | 6 files |
 
 ### Roadmap Evolution
 
@@ -77,9 +78,9 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-07-02T17:03:15.646Z
-**Stopped at:** Phase 5 context gathered
-**Resume file:** .planning/phases/05-devops-quality-gates/05-CONTEXT.md
+**Last session:** 2026-07-02T17:55:49.051Z
+**Stopped at:** Completed 05-01-PLAN.md
+**Resume file:** None
 
 - **Last action:** Quick task 260702-ku8 complete (2026-07-02) — all mid-assignment review gaps fixed: C-1 Collector ack-on-persist-failure (silent data loss), M-1 e2e exact-count + `make e2e` target, M-2 MQ missed-wakeup race, M-3 MQ shutdown hang (shutdownCh wired), M-4 gateway X-Truncated header, M-5 ADR-002 (µs collision accepted), M-6 streamer retry/backoff, G-1..G-4 (backoff escalation, honest lint gate, Docker-env docs, docs/AI_USAGE.md + DOC-02). Gates green: build/test/coverage 90.3%/lint.
 - **Next action:** Execute Phase 3 (`/gsd-execute-phase 3`). Wave 1 = 03-01 (pkg/models) ∥ 03-02 (Streamer); Wave 2 = 03-03 (Collector); Wave 3 = 03-04 (E2E + smoke-03). Integration/E2E need Rancher Docker env: `DOCKER_HOST=unix://$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`. Service logic lives in internal/streamer + internal/collector (thin cmd wrappers) so the ≥90% coverage gate reaches it.
