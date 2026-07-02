@@ -14,15 +14,22 @@
 #   DOCKER_HOST=unix://$$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true make e2e
 
 SERVICES := mq streamer collector gateway
+DOCKER_IMAGES := $(SERVICES) migrate
 COVERAGE_THRESHOLD ?= 90
 PROTO_DIR := api/proto
 PB_OUT    := pkg/pb
+
+# Tooling env for every target: kind lives in ~/go/bin (not on shell PATH),
+# Docker/kind/testcontainers talk to the Rancher Desktop socket, Ryuk stays off.
+export PATH := $(HOME)/go/bin:$(PATH)
+export DOCKER_HOST := unix:///Users/ajitg/.rd/docker.sock
+export TESTCONTAINERS_RYUK_DISABLED := true
 
 .DEFAULT_GOAL := help
 
 .PHONY: help tools check-protoc proto build test coverage e2e swagger lint tidy clean \
         smoke smoke-% docker docker-% kind-up helm-install kind-down \
-        dev-up dev-down
+        dev-up dev-down kind-load deploy dependency-update soak test-harness
 
 help: ## List targets
 	@grep -hE '^[a-zA-Z_%-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -104,7 +111,7 @@ tidy: ## go mod tidy
 clean: ## Remove build + coverage artifacts
 	rm -rf bin coverage.out coverage.html
 
-docker: $(addprefix docker-,$(SERVICES)) ## Build all service images
+docker: $(addprefix docker-,$(DOCKER_IMAGES)) ## Build all five images (4 services + migrate)
 
 docker-%: ## Build a single service image (build/%.Dockerfile)
 	docker build -f build/$*.Dockerfile -t vantage/$*:dev .
@@ -112,8 +119,26 @@ docker-%: ## Build a single service image (build/%.Dockerfile)
 kind-up: ## Create local kind cluster
 	kind create cluster --name vantage
 
-helm-install: ## Install the umbrella chart into kind
+helm-install: dependency-update ## Install/upgrade the umbrella chart into kind
 	helm upgrade --install vantage deployments -f deployments/values.yaml
 
 kind-down: ## Delete the kind cluster
 	kind delete cluster --name vantage
+
+dependency-update: ## Pull Helm chart dependencies (Bitnami postgresql OCI)
+	helm dependency update deployments/
+
+kind-load: ## Load all five vantage/*:dev images into the vantage kind cluster
+	@for img in $(DOCKER_IMAGES); do \
+		echo "== kind load $$img =="; \
+		kind load docker-image vantage/$$img:dev --name vantage; \
+	done
+
+deploy: docker kind-load helm-install ## Full deploy cycle: docker build -> kind-load -> helm install
+
+soak: ## Run sustained pipeline soak (SOAK_DURATION=60, SOAK_STREAMERS=3)
+	@bash scripts/soak.sh
+
+test-harness: ## Run live-infrastructure E2E harness (requires Docker)
+	DOCKER_HOST=unix://$$HOME/.rd/docker.sock TESTCONTAINERS_RYUK_DISABLED=true \
+	  go test -race -tags=e2e -count=1 -v -timeout 120s ./test/harness/...
