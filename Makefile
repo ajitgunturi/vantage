@@ -120,7 +120,7 @@ kind-up: ## Create local kind cluster
 	kind create cluster --name vantage
 
 helm-install: dependency-update ## Install/upgrade the umbrella chart into kind
-	helm upgrade --install vantage deployments -f deployments/values.yaml
+	helm upgrade --install vantage deployments -f deployments/values.yaml --timeout 3m
 
 kind-down: ## Delete the kind cluster
 	kind delete cluster --name vantage
