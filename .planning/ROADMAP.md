@@ -124,10 +124,17 @@ Plans:
   3. The Makefile exposes `proto`, `build`, `test`, `coverage`, and `swagger` targets; unit tests span all services and the coverage gate enforces ≥90% line coverage.
 
 **Plans**: 0/4 plans complete
+**Wave 1**
 
 - [ ] 05-01-PLAN.md — Five multi-stage Dockerfiles + Makefile deploy/kind-load/soak/test-harness plumbing (OPS-01, OPS-05) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 05-02-PLAN.md — Helm umbrella + 4 self-contained sub-charts + Bitnami OCI dep + migration hook (OPS-02, OPS-03, OPS-04) [wave 2]
 - [ ] 05-03-PLAN.md — Live-infra test-harness (compose module) + coverage-gate closure (QA-01, QA-04) [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 05-04-PLAN.md — kind E2E smoke-05 + soak + README workflow (OPS-03) [wave 3]
 
 ### Phase 6: MQ Durability — Opt-in WAL Persistence
