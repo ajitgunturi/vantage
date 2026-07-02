@@ -90,7 +90,7 @@ func Migrate(ctx context.Context, dsn string) error {
 	if err != nil {
 		return fmt.Errorf("db: migrate init: %w", err)
 	}
-	defer m.Close()
+	defer m.Close() //nolint:errcheck
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("db: migrate up: %w", err)

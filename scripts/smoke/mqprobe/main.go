@@ -63,7 +63,7 @@ func run(addr string, n, credit int, mode string, timeout time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", addr, err)
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	client := pb.NewMQServiceClient(conn)
 
 	switch mode {

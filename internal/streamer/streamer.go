@@ -128,7 +128,7 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 	if err != nil {
 		return fmt.Errorf("streamer: open csv: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	for {
 		// Check cancellation at the top of each pass before seeking.
@@ -194,7 +194,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	client := pb.NewMQServiceClient(conn)
 	return Stream(ctx, client, cfg.CSVPath, cfg.LoopDelayMS, false)
 }
