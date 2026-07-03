@@ -195,6 +195,50 @@ func TestTelemetry_Limit(t *testing.T) {
 	assert.Len(t, rows, 3, "result must be capped at limit=3")
 }
 
+// ── Error-path coverage tests ────────────────────────────────────────────────
+// The tests below use a pre-cancelled context to trigger the query-error
+// branches in DistinctGPUIDs, GPUExists, and Telemetry. pgxpool returns
+// context.Canceled immediately on pool.Query / pool.QueryRow when the context
+// is already done, which exercises the "return nil, fmt.Errorf(...)" branches
+// that are not reachable when queries succeed.
+
+// TestDistinctGPUIDs_CancelledContext verifies that DistinctGPUIDs returns a
+// wrapped "db: DistinctGPUIDs: query:" error when the context is cancelled
+// before the query executes.
+func TestDistinctGPUIDs_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel — pool.Query must fail immediately
+
+	_, err := db.DistinctGPUIDs(ctx, testPool)
+	require.Error(t, err, "DistinctGPUIDs with cancelled context must error")
+	assert.Contains(t, err.Error(), "DistinctGPUIDs",
+		"error must carry the function name for diagnosability")
+}
+
+// TestGPUExists_CancelledContext verifies that GPUExists returns a wrapped error
+// when the context is cancelled before the query executes.
+func TestGPUExists_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := db.GPUExists(ctx, testPool, "GPU-some-id")
+	require.Error(t, err, "GPUExists with cancelled context must error")
+	assert.Contains(t, err.Error(), "GPUExists",
+		"error must carry the function name for diagnosability")
+}
+
+// TestTelemetry_CancelledContext verifies that Telemetry returns a wrapped
+// "db: Telemetry: query:" error when the context is cancelled before the query.
+func TestTelemetry_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := db.Telemetry(ctx, testPool, "GPU-some-id", nil, nil, 10, 0)
+	require.Error(t, err, "Telemetry with cancelled context must error")
+	assert.Contains(t, err.Error(), "Telemetry",
+		"error must carry the function name for diagnosability")
+}
+
 // TestTelemetry_UsesCompositeIndex verifies DB-02 / API-03: the windowed
 // telemetry query uses idx_gpu_metrics_gpu_id_ts (composite index on
 // gpu_id, timestamp DESC). Seeds 100k rows + ANALYZE so the planner
