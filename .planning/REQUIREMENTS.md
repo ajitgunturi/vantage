@@ -56,7 +56,7 @@
 - [x] **API-02**: `GET /api/v1/gpus/{id}/telemetry` returns that GPU's telemetry ordered by time
 - [x] **API-03**: `GET /api/v1/gpus/{id}/telemetry?start_time=&end_time=` filters by time window
 - [x] **API-04**: OpenAPI spec fully auto-generated from `swag` code annotations (no hand-written spec)
-- [ ] **API-05**: `GET /api/v1/gpus/{id}/telemetry` supports `limit`/`offset` pagination pushed down into the composite-index SQL path, with pagination metadata in the response; swag annotations updated and spec regenerated _(Phase 6 — reverses the prior Out-of-Scope entry; see 06-REVIEW.md F-06)_
+- [x] **API-05**: `GET /api/v1/gpus/{id}/telemetry` supports `limit`/`offset` pagination pushed down into the composite-index SQL path, with pagination metadata in the response; swag annotations updated and spec regenerated _(Phase 6 — reverses the prior Out-of-Scope entry; see 06-REVIEW.md F-06)_
 
 ### DevOps / Deployment (OPS)
 
@@ -80,7 +80,7 @@
 
 ### Observability (OBS)
 
-- [ ] **OBS-01**: Every service exposes `/healthz` (liveness) and `/readyz` (readiness) — gateway readiness pings the DB pool, MQ readiness reflects the gRPC server, streamer/collector run a lightweight `net/http` health listener
+- [x] **OBS-01**: Every service exposes `/healthz` (liveness) and `/readyz` (readiness) — gateway readiness pings the DB pool, MQ readiness reflects the gRPC server, streamer/collector run a lightweight `net/http` health listener
 - [x] **OBS-02**: All services log through structured `log/slog` (stdlib): JSON handler, level via env, per-service attribute — replacing stdlib `log`
 
 ### Documentation & Manual Verification (DOC / QA) — cross-cutting cadence
@@ -166,12 +166,12 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | QA-04 | Phase 5 | Complete |
 | DOC-02 | Phase 6 | Pending |
 | DOC-03 | Phase 6 | Pending |
-| OBS-01 | Phase 6 | Pending |
+| OBS-01 | Phase 6 | Complete |
 | OBS-02 | Phase 6 | Complete |
 | OPS-07 | Phase 6 | Pending |
 | OPS-08 | Phase 6 | Pending |
 | OPS-09 | Phase 6 | Pending |
-| API-05 | Phase 6 | Pending |
+| API-05 | Phase 6 | Complete |
 | QA-07 | Phase 6 | Pending |
 | DUR-01 | Phase 7 | Pending |
 | DUR-02 | Phase 7 | Pending |

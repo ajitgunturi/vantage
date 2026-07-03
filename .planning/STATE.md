@@ -5,13 +5,13 @@ milestone_name: milestone
 current_phase: 06
 current_phase_name: production-hardening-assignment-alignment
 status: executing
-stopped_at: Phase 6 inserted from assignment-alignment audit; roadmap renumbered (WAL → Phase 7); ready to plan on branch phase-06-production-hardening
-last_updated: "2026-07-03T04:18:45.065Z"
+stopped_at: Completed 06-02-PLAN.md — pagination + health handlers
+last_updated: "2026-07-03T04:30:10.901Z"
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 31
-  completed_plans: 24
+  completed_plans: 25
   percent: 75
 ---
 
@@ -27,9 +27,9 @@ progress:
 
 - **Milestone:** v1 (MVP)
 - **Phase:** 06 (production-hardening-assignment-alignment) — EXECUTING
-- **Plan:** 2 of 8
+- **Plan:** 3 of 8
 - **Status:** Ready to execute
-- **Progress:** [████████░░] 77%
+- **Progress:** [████████░░] 81%
 
 ```
 [ ██████▱▱ ] 6/8 phases
@@ -77,6 +77,7 @@ progress:
 | Phase 05 P03 | 14 min | 2 tasks | 5 files |
 | Phase 05 P04 | 10 min | 2 tasks | 3 files |
 | Phase 06 P01 | 480s | 3 tasks | 9 files |
+| Phase 06 P02 | 412 | 3 tasks | 8 files |
 
 ### Roadmap Evolution
 
@@ -85,8 +86,8 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-07-03T04:18:45.059Z
-**Stopped at:** Phase 6 inserted from assignment-alignment audit; roadmap renumbered (WAL → Phase 7); ready to plan on branch phase-06-production-hardening
+**Last session:** 2026-07-03T04:30:10.893Z
+**Stopped at:** Completed 06-02-PLAN.md — pagination + health handlers
 **Resume file:** None
 
 - **Last action:** Phase 5 UAT completed 2026-07-02 — Test 1 (kind E2E deploy + smoke-05) and Test 2 (sustained soak: rows grew, produced≥consumed, bounded depth, streamer restored) both human-verified. 05-SECURITY.md written: 17 threats closed / 0 open. VERIFICATION.md canonicalized to passed; phase marked complete in ROADMAP/STATE; PROJECT.md evolved (10 requirements moved to Validated; only WAL remains Active).
@@ -144,3 +145,6 @@ progress:
 - [Phase 04]: Plan 04-02: two-query approach in db.Telemetry — separate simple/windowed SQL paths keep idx_gpu_metrics_gpu_id_ts index use clean; COALESCE on nullable text cols avoids *string scan panics
 - [Phase 04]: Plan 04-02: GPUExists (SELECT EXISTS) before Telemetry call separates 404 (unknown GPU) from 200-[] (known GPU, empty window) per OQ-2
 - [Phase ?]: swag runtime version mismatch
+- [Phase ?]: limit+1 sentinel for has_next avoids COUNT query (plan 06-02)
+- [Phase ?]: OFFSET as pgx placeholder only — no SQL string concat (T-06-03, plan 06-02)
+- [Phase ?]: ReadyzHandler returns generic status only — no DSN/driver text in response (T-06-05, plan 06-02)
