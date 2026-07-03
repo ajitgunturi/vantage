@@ -102,3 +102,13 @@ within the time-box constraint. Module gate passes at 91.6%.
 - helm lint deployments passes with 0 issues
 - make coverage reports 91.6% >= 90%
 - make lint reports 0 issues
+
+## Addendum — streamer real-CSV fix (commit 9d76389, owner-directed follow-up)
+
+The kind deployment only showed 3 GPUs because the streamer mounted a 12-row synthetic fixture
+ConfigMap; the real dcgm_metrics_*.csv (247 GPUs, 1.1MB) was excluded from the Docker build
+context and exceeds the 1MiB ConfigMap limit. Fix: bake the CSV into the streamer image at
+build time (fixture fallback when absent), make the ConfigMap mount opt-in
+(streamer.useFixtureConfigMap, default false). Verified live: /api/v1/gpus returns 250 IDs
+(247 real + 3 pre-existing fixture rows). This supersedes the "fixture CSV — no action"
+entry in the plan's noted-decisions list, by owner directive.

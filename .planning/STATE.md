@@ -72,7 +72,7 @@ progress:
 |---|-------------|------|--------|-----------|
 | 260702-ku8 | fix all the gaps identified as part of this review (mid-assignment 4-agent review: C-1 ack-on-persist data loss, MQ liveness M-2/M-3, gateway M-4, ADR-002, AI_USAGE docs) | 2026-07-02 | 2a2a1f7 | [260702-ku8-fix-all-the-gaps-identified-as-part-of-t](./quick/260702-ku8-fix-all-the-gaps-identified-as-part-of-t/) |
 | 260703-ilo | backfill missing ADRs (ADR-003..ADR-010) + ten-row index (docs/adr/README.md) + README link | 2026-07-03 | 9782893 | [260703-ilo-backfill-missing-adrs](./quick/260703-ilo-backfill-missing-adrs/) |
-| 260703-fnl | final-review gap closure: WAL doc drift, STATE metrics, Helm replicaCount, dead code removal, stale comment, coverage lift | 2026-07-03 | 631e989 | [260703-fnl-final-review-gap-closure](./quick/260703-fnl-final-review-gap-closure/) |
+| 260703-fnl | final-review gap closure: WAL doc drift, STATE metrics, Helm replicaCount, dead code removal, stale comment, coverage lift; addendum: real DCGM CSV baked into streamer image (247 GPUs in kind) | 2026-07-03 | 9d76389 | [260703-fnl-final-review-gap-closure](./quick/260703-fnl-final-review-gap-closure/) |
 | fast | smoke phase03: read count(*)/count(distinct) from one snapshot — two-query MVCC race falsely failed the exactly-once check | 2026-07-02 | b89753c | — |
 | Phase 05 P01 | 8 min | 2 tasks | 6 files |
 | Phase 05 P02 | 9 min | 2 tasks | 16 files |
