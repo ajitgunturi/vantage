@@ -12,7 +12,7 @@ alternatives that were rejected.
 | [ADR-002](ADR-002-natural-key-microsecond-collision.md) | Natural Key Microsecond Collision Under Concurrent Streamers | Accepted | 2026-07-02 | cross-phase |
 | [ADR-003](ADR-003-single-module-directory-ownership.md) | Single Go Module with Directory-Based Service Ownership | Accepted | 2026-06-27 | 1 |
 | [ADR-004](ADR-004-ring-buffer-store-interface.md) | Bounded Ring Buffer Behind a `Store` Interface | Accepted | 2026-06-27 | 1 |
-| [ADR-005](ADR-005-raw-protoc-over-buf.md) | Raw `protoc` Over `buf` CLI for Proto Code Generation | Accepted (deviation from stack recommendation) | 2026-06-27 | 1 |
+| [ADR-005](ADR-005-raw-protoc-over-buf.md) | Hermetic Builds via Committed Generated Proto Code | Accepted (deviation from stack recommendation) | 2026-06-27 | 1 |
 | [ADR-006](ADR-006-long-narrow-schema-natural-key.md) | Long/Narrow Schema with Natural Composite Key | Accepted | 2026-06-29 | 2 |
 | [ADR-007](ADR-007-pgx-batch-on-conflict-over-copyfrom.md) | `pgx.Batch` with `ON CONFLICT DO NOTHING` over `CopyFrom` | Accepted | 2026-06-29 | 3 |
 | [ADR-008](ADR-008-chart-enforced-single-replica-post-install-hook.md) | Chart-Enforced Single Replica and Post-Install Migration Hook | Accepted (deviation from D-09) | 2026-07-02 | 5 |

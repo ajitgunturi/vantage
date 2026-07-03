@@ -1,6 +1,9 @@
-# ADR-005: Raw `protoc` Over `buf` CLI for Proto Code Generation
+# ADR-005: Hermetic Builds via Committed Generated Proto Code
 
 **Status:** Accepted (deviation from the researched stack recommendation)
+**Scope note:** The architectural decision here is *committing `pkg/pb/` so builds
+and CI need no proto toolchain*. The raw-`protoc`-over-`buf` choice is the
+mechanism serving that decision, recorded alongside it.
 **Date:** 2026-06-27
 **Phase:** 1 — MQ Foundation
 **Backfilled:** 2026-07-03
