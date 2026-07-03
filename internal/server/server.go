@@ -352,6 +352,18 @@ func (s *MQServer) Shutdown() {
 	s.once.Do(func() { close(s.shutdownCh) })
 }
 
+// IsShuttingDown reports whether Shutdown has been called. Uses a non-blocking
+// channel select — no mutex needed and no allocation. Safe to call on the HTTP
+// hot path (used by ReadyzHandler for Kubernetes readiness probes).
+func (s *MQServer) IsShuttingDown() bool {
+	select {
+	case <-s.shutdownCh:
+		return true
+	default:
+		return false
+	}
+}
+
 // Stats returns a point-in-time snapshot of server state. All reads are atomic;
 // no mutex is held by Stats itself (safe to call from the HTTP hot path).
 func (s *MQServer) Stats() ServerStats {
