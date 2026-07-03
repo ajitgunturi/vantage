@@ -7,7 +7,8 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -15,9 +16,13 @@ import (
 
 	"github.com/ajitg/vantage/internal/collector"
 	"github.com/ajitg/vantage/pkg/db"
+	pkglogger "github.com/ajitg/vantage/pkg/logger"
 )
 
 func main() {
+	l := pkglogger.New("collector")
+	slog.SetDefault(l)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
@@ -25,19 +30,21 @@ func main() {
 
 	dbCfg, err := db.FromEnv()
 	if err != nil {
-		log.Fatalf("collector: db config: %v", err)
+		slog.Error("db config error", "error", err)
+		os.Exit(1)
 	}
 	if err := db.Migrate(ctx, dbCfg.DSN); err != nil {
-		log.Fatalf("collector: migrate: %v", err)
+		slog.Error("migrate error", "error", err)
+		os.Exit(1)
 	}
 	pool, err := db.New(ctx, dbCfg)
 	if err != nil {
-		log.Fatalf("collector: db pool: %v", err)
+		slog.Error("db pool error", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
-	log.Printf("collector: starting — MQ %s, batch %d, flush %dms, credit %d",
-		cfg.MQAddr, cfg.BatchSize, cfg.FlushMS, cfg.Credit)
+	slog.Info("starting", "mq_addr", cfg.MQAddr, "batch", cfg.BatchSize, "flush_ms", cfg.FlushMS, "credit", cfg.Credit)
 
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -50,6 +57,7 @@ func main() {
 	})
 
 	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatal(err)
+		slog.Error("fatal error", "error", err)
+		os.Exit(1)
 	}
 }

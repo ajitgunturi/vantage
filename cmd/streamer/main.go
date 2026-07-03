@@ -13,23 +13,27 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/ajitg/vantage/internal/streamer"
+	pkglogger "github.com/ajitg/vantage/pkg/logger"
 )
 
 func main() {
+	l := pkglogger.New("streamer")
+	slog.SetDefault(l)
+
 	cfg := streamer.FromEnv()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	log.Printf("streamer: MQ addr %s, CSV %s, loop delay %dms",
-		cfg.MQAddr, cfg.CSVPath, cfg.LoopDelayMS)
+	slog.Info("starting", "mq_addr", cfg.MQAddr, "csv", cfg.CSVPath, "loop_delay_ms", cfg.LoopDelayMS)
 
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -46,6 +50,7 @@ func main() {
 	})
 
 	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatal(err)
+		slog.Error("fatal error", "error", err)
+		os.Exit(1)
 	}
 }

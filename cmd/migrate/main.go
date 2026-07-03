@@ -15,18 +15,22 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/ajitg/vantage/pkg/db"
+	pkglogger "github.com/ajitg/vantage/pkg/logger"
 )
 
 func main() {
+	l := pkglogger.New("migrate")
+	slog.SetDefault(l)
+
 	if err := run(); err != nil {
-		log.Printf("migrate: %v", err)
+		slog.Error("migration failed", "error", err)
 		os.Exit(1)
 	}
-	fmt.Println("migrate: schema up to date")
+	slog.Info("schema up to date")
 }
 
 func run() error {

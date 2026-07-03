@@ -8,9 +8,10 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -23,10 +24,14 @@ import (
 	mqhttp "github.com/ajitg/vantage/internal/http"
 	"github.com/ajitg/vantage/internal/queue"
 	"github.com/ajitg/vantage/internal/server"
+	pkglogger "github.com/ajitg/vantage/pkg/logger"
 	"github.com/ajitg/vantage/pkg/pb"
 )
 
 func main() {
+	l := pkglogger.New("mq")
+	slog.SetDefault(l)
+
 	cfg := config.FromEnv()
 
 	s := queue.NewRingStore(cfg.BufferSize)
@@ -71,13 +76,13 @@ func main() {
 		if err != nil {
 			return err
 		}
-		log.Printf("mq: gRPC listening on %s", cfg.GRPCAddr)
+		slog.Info("gRPC listening", "addr", cfg.GRPCAddr)
 		return grpcSrv.Serve(grpcLis)
 	})
 
 	// (2) HTTP server goroutine.
 	g.Go(func() error {
-		log.Printf("mq: HTTP listening on %s", cfg.HTTPAddr)
+		slog.Info("HTTP listening", "addr", cfg.HTTPAddr)
 		return httpSrv.ListenAndServe()
 	})
 
@@ -98,7 +103,7 @@ func main() {
 		case <-gracefulDone:
 			// all streams finished cleanly
 		case <-time.After(5 * time.Second):
-			log.Printf("mq: GracefulStop timeout — forcing Stop()")
+			slog.Warn("GracefulStop timeout — forcing Stop()")
 			grpcSrv.Stop()
 			<-gracefulDone // Stop() wakes GracefulStop's condition variable
 		}
@@ -107,9 +112,10 @@ func main() {
 		return httpSrv.Shutdown(shutCtx)
 	})
 
-	log.Printf("mq: gRPC on %s, HTTP on %s, buffer %d", cfg.GRPCAddr, cfg.HTTPAddr, cfg.BufferSize)
+	slog.Info("startup complete", "grpc_addr", cfg.GRPCAddr, "http_addr", cfg.HTTPAddr, "buffer", cfg.BufferSize)
 
 	if err := g.Wait(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		slog.Error("fatal error", "error", err)
+		os.Exit(1)
 	}
 }
