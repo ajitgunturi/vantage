@@ -32,14 +32,14 @@ progress:
 - **Progress:** [██████████] 100%
 
 ```
-[ ██████▱▱ ] 6/8 phases
+[ ███████▱ ] 7/8 phases
 ```
 
 ## Performance Metrics
 
-- Phases complete: 6/8 (1, 01.1, 2, 3, 4, 5)
-- Requirements delivered: 40/52 (remaining: DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07 — Phase 6; DUR-01/02, QA-05 — Phase 7)
-- Plans executed: 23
+- Phases complete: 7/8 (1, 01.1, 2, 3, 4, 5, 6)
+- Requirements delivered: 49/52 (remaining: DUR-01/02, QA-05 — Phase 7, deferred post-v1)
+- Plans executed: 31
 
 ## Accumulated Context
 
@@ -72,6 +72,7 @@ progress:
 |---|-------------|------|--------|-----------|
 | 260702-ku8 | fix all the gaps identified as part of this review (mid-assignment 4-agent review: C-1 ack-on-persist data loss, MQ liveness M-2/M-3, gateway M-4, ADR-002, AI_USAGE docs) | 2026-07-02 | 2a2a1f7 | [260702-ku8-fix-all-the-gaps-identified-as-part-of-t](./quick/260702-ku8-fix-all-the-gaps-identified-as-part-of-t/) |
 | 260703-ilo | backfill missing ADRs (ADR-003..ADR-010) + ten-row index (docs/adr/README.md) + README link | 2026-07-03 | 9782893 | [260703-ilo-backfill-missing-adrs](./quick/260703-ilo-backfill-missing-adrs/) |
+| 260703-fnl | final-review gap closure: WAL doc drift, STATE metrics, Helm replicaCount, dead code removal, stale comment, coverage lift | 2026-07-03 | — | [260703-fnl-final-review-gap-closure](./quick/260703-fnl-final-review-gap-closure/) |
 | fast | smoke phase03: read count(*)/count(distinct) from one snapshot — two-query MVCC race falsely failed the exactly-once check | 2026-07-02 | b89753c | — |
 | Phase 05 P01 | 8 min | 2 tasks | 6 files |
 | Phase 05 P02 | 9 min | 2 tasks | 16 files |
