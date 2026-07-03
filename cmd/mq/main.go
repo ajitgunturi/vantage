@@ -57,6 +57,8 @@ func main() {
 	// HTTP control-plane: method-scoped route requires Go 1.22+ net/http ServeMux.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/queue/inspect", mqhttp.InspectHandler(mqSrv))
+	mux.HandleFunc("GET /healthz", mqhttp.HealthzHandler())
+	mux.HandleFunc("GET /readyz", mqhttp.ReadyzHandler(mqSrv))
 	httpSrv := &http.Server{
 		Addr:         cfg.HTTPAddr,
 		Handler:      mux,
