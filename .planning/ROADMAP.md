@@ -12,7 +12,7 @@
 - [x] **Phase 3: Pipeline — Streamer + Collector + Integration** - Live CSV telemetry flowing end-to-end into PostgreSQL under concurrency (completed 2026-06-29)
 - [x] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry (completed 2026-06-30)
 - [x] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar (completed 2026-07-02)
-- [ ] **Phase 6: Production Hardening + Assignment Alignment** - Close the review/audit gaps: AI-prompt log, health endpoints + probes, resources/HPA, pagination, CI, slog
+- [x] **Phase 6: Production Hardening + Assignment Alignment** - Close the review/audit gaps: AI-prompt log, health endpoints + probes, resources/HPA, pagination, CI, slog (completed 2026-07-03)
 - [ ] **Phase 7: MQ Durability — Opt-in WAL Persistence** - Crash-durable broker mode behind the Store interface; at-least-once via replay
 
 ## Phase Details
@@ -156,7 +156,7 @@ Plans:
   4. `GET /api/v1/gpus/{id}/telemetry` supports `limit`/`offset` pushed down into the composite-index SQL path with pagination metadata in the response, and the regenerated OpenAPI spec documents it.
   5. A GitHub Actions workflow runs `make build test coverage lint` on every push and PR, and all services log through structured `log/slog`.
 
-**Plans**: 7/8 plans executed
+**Plans**: 8/8 plans complete
 
 **Wave 1** *(parallel — disjoint files)*
 
@@ -176,7 +176,7 @@ Plans:
 **Wave 4** *(finalization)*
 
 - [x] 06-07-PLAN.md — GitHub Actions CI running the make gates (QA-07)
-- [ ] 06-08-PLAN.md — AI_PROMPTS.md verbatim prompt log + README accuracy pass (DOC-02, DOC-03)
+- [x] 06-08-PLAN.md — AI_PROMPTS.md verbatim prompt log + README accuracy pass (DOC-02, DOC-03)
 
 ### Phase 7: MQ Durability — Opt-in WAL Persistence
 
@@ -202,7 +202,7 @@ Plans:
 | 3. Pipeline — Streamer + Collector + Integration | 4/4 | Complete   | 2026-06-29 |
 | 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
 | 5. DevOps + Quality Gates | 5/5 | Complete    | 2026-07-02 |
-| 6. Production Hardening + Assignment Alignment | 7/8 | In Progress|  |
+| 6. Production Hardening + Assignment Alignment | 8/8 | Complete   | 2026-07-03 |
 | 7. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
 
 ## Coverage

@@ -86,8 +86,8 @@
 ### Documentation & Manual Verification (DOC / QA) — cross-cutting cadence
 
 - [x] **DOC-01**: Living `README.md` quickstart, grown **incrementally** as each phase completes — a reader can clone → run → see each shipped component work. Every phase plan includes a README-update task.
-- [ ] **DOC-02**: Verbatim AI-prompt log (`docs/AI_PROMPTS.md`): stage / tool / prompt / outcome / where the prompt fell short and what manual intervention was needed — covering repo bootstrap, code, unit tests, and build env (assignment deliverable); linked from README and `docs/AI_USAGE.md`
-- [ ] **DOC-03**: README accuracy pass — migration Job documented as `post-install,post-upgrade` hook (not pre-install), plus workflow docs for the new health/probe/HPA/pagination surfaces
+- [x] **DOC-02**: Verbatim AI-prompt log (`docs/AI_PROMPTS.md`): stage / tool / prompt / outcome / where the prompt fell short and what manual intervention was needed — covering repo bootstrap, code, unit tests, and build env (assignment deliverable); linked from README and `docs/AI_USAGE.md`
+- [x] **DOC-03**: README accuracy pass — migration Job documented as `post-install,post-upgrade` hook (not pre-install), plus workflow docs for the new health/probe/HPA/pagination surfaces
 - [x] **QA-06**: Runnable manual smoke suite the user executes to verify each phase's deliverables — `scripts/smoke/phaseNN-*.sh` driven by `make smoke-NN` (one phase) and `make smoke` (all phases shipped). Distinct from automated integration tests (QA-03) and the coverage gate (QA-04).
 - [ ] **OPS-06**: `docker-compose.yml` dev stack + `make dev-up`/`make dev-down` provides local dependencies (Postgres from Phase 2 on) for manual smoke testing, independent of the Phase-5 kind/Helm stack.
 
@@ -164,8 +164,8 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | OPS-05 | Phase 5 | Complete |
 | QA-01 | Phase 5 | Complete |
 | QA-04 | Phase 5 | Complete |
-| DOC-02 | Phase 6 | Pending |
-| DOC-03 | Phase 6 | Pending |
+| DOC-02 | Phase 6 | Complete |
+| DOC-03 | Phase 6 | Complete |
 | OBS-01 | Phase 6 | Complete |
 | OBS-02 | Phase 6 | Complete |
 | OPS-07 | Phase 6 | Complete |
