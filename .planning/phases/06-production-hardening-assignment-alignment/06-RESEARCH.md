@@ -944,7 +944,7 @@ No rename/refactor is involved in Phase 6. This section is omitted.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED — recommendations adopted by plans 06-04/05/06/07/08)
 
 1. **Streamer/collector health port numbers**
    - What we know: Current services expose no HTTP; ports 5000/5001 are proposed.
