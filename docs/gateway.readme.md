@@ -69,12 +69,16 @@ Response envelope (replaces the former `X-Truncated`/`X-Row-Limit` headers):
   "pagination": {
     "limit": 100,
     "offset": 0,
+    "total": 1234,
     "has_next": true
   }
 }
 ```
 
-`has_next: true` means at least one more row exists at `offset + limit`. Ordering is newest-first
+`has_next: true` means at least one more row exists at `offset + limit`. `total` is the count of
+all rows matching the filter (gpu_id + optional time window), computed by a `COUNT(*)` alongside
+the page query — under live ingest it may lag the page data by a few rows (the two queries are
+not transactionally paired; ADR-010 amendment). Ordering is newest-first
 (composite index on `(gpu_id, timestamp DESC)`). Time-window parameters (`start_time`, `end_time`)
 still work alongside pagination — the offset applies within the filtered result set.
 

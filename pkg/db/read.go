@@ -62,6 +62,47 @@ func GPUExists(ctx context.Context, pool *pgxpool.Pool, id string) (bool, error)
 	return exists, nil
 }
 
+// TelemetryCount returns the total number of metric rows for the given gpu_id
+// within the optional inclusive [start, end] window (nil = unbounded), matching
+// the filter predicate of Telemetry exactly. It backs the pagination envelope's
+// "total" field (API-05 amendment, ADR-010).
+//
+// The COUNT(*) runs against the composite index (gpu_id, timestamp DESC) —
+// an index-only scan for a single GPU at fixture scale.
+//
+// Security: all parameters are pgx-bound ($1..$3); no string concatenation;
+// DSN never embedded in errors (ASVS V5, V8).
+func TelemetryCount(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	id string,
+	start, end *time.Time,
+) (int64, error) {
+	var total int64
+	var err error
+
+	if start == nil && end == nil {
+		// Simple path — mirrors the unbounded Telemetry query predicate.
+		err = pool.QueryRow(ctx,
+			`SELECT count(*) FROM gpu_metrics WHERE gpu_id = $1`,
+			id,
+		).Scan(&total)
+	} else {
+		// Windowed path — same nullable-bound predicate as Telemetry (OQ-3).
+		err = pool.QueryRow(ctx,
+			`SELECT count(*) FROM gpu_metrics
+			 WHERE gpu_id = $1
+			   AND ($2::timestamptz IS NULL OR timestamp >= $2)
+			   AND ($3::timestamptz IS NULL OR timestamp <= $3)`,
+			id, start, end,
+		).Scan(&total)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("db: TelemetryCount: %w", err)
+	}
+	return total, nil
+}
+
 // Telemetry returns the metric rows for the given gpu_id ordered by timestamp
 // DESC, capped at limit rows starting from offset. start and end are optional
 // inclusive RFC3339 time bounds (nil = unbounded; OQ-3 partial bounds).

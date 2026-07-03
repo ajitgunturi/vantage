@@ -43,12 +43,20 @@ type TelemetryPage struct {
 	Pagination PaginationMeta      `json:"pagination"`
 }
 
-// PaginationMeta carries the limit/offset applied to the query and a sentinel
-// indicating whether another page exists (API-05, RESEARCH Pitfall 5 — off-by-one).
+// PaginationMeta carries the limit/offset applied to the query, a sentinel
+// indicating whether another page exists (API-05, RESEARCH Pitfall 5 — off-by-one),
+// and the total number of rows matching the filter (gpu_id + optional time window).
+//
+// Total is computed by a separate COUNT(*) query (ADR-010 amendment): it may lag
+// the page data by a few rows under live ingest — the pipeline inserts continuously,
+// and the two queries are not transactionally paired. has_next remains derived
+// from the limit+1 sentinel on the page query itself, so it is always consistent
+// with the returned data.
 type PaginationMeta struct {
-	Limit   int  `json:"limit"`
-	Offset  int  `json:"offset"`
-	HasNext bool `json:"has_next"`
+	Limit   int   `json:"limit"`
+	Offset  int   `json:"offset"`
+	Total   int64 `json:"total"`
+	HasNext bool  `json:"has_next"`
 }
 
 // writeJSON sets Content-Type to application/json and encodes v into w.
@@ -99,6 +107,7 @@ func ReadyzHandler(pool *pgxpool.Pool) http.HandlerFunc {
 // @Description Returns time-series metric rows for a GPU ordered newest-first (API-02).
 // @Description Optional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).
 // @Description Use limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).
+// @Description pagination.total carries the total row count for the filter; pagination.has_next signals more pages.
 // @Tags        gpus
 // @Produce     json
 // @Param       id         path     string  true  "GPU UUID"
@@ -187,8 +196,19 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 			return
 		}
 
-		// Fetch limit+1 rows to detect has_next without a COUNT query (API-05,
-		// RESEARCH Pitfall 5). limit and offset are pgx $N placeholders (T-06-03).
+		// Total row count for the filter (gpu_id + window) — backs pagination.total
+		// (ADR-010 amendment). COUNT(*) rides the composite index; at fixture scale
+		// this is an index-only scan.
+		total, err := db.TelemetryCount(dbCtx, pool, id, start, end)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to count telemetry")
+			return
+		}
+
+		// Fetch limit+1 rows to detect has_next via the sentinel (API-05,
+		// RESEARCH Pitfall 5) — kept alongside total so has_next stays consistent
+		// with the page data even under live ingest (the count above may lag).
+		// limit and offset are pgx $N placeholders (T-06-03).
 		metrics, err := db.Telemetry(dbCtx, pool, id, start, end, limit+1, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to fetch telemetry")
@@ -222,7 +242,7 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, TelemetryPage{
 			Data:       resp,
-			Pagination: PaginationMeta{Limit: limit, Offset: offset, HasNext: hasNext},
+			Pagination: PaginationMeta{Limit: limit, Offset: offset, Total: total, HasNext: hasNext},
 		})
 	}
 }

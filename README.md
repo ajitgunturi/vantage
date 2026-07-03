@@ -88,7 +88,7 @@ curl -s http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry | python3 -
 # Time-window filter (RFC3339)
 curl -s 'http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry?start_time=2024-01-01T00:00:00Z&end_time=2024-01-02T00:00:00Z'
 
-# Pagination (cursor-free offset; response includes has_next)
+# Pagination (cursor-free offset; response includes total + has_next)
 curl -s 'http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=0'
 curl -s 'http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=100'
 ```

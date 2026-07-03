@@ -195,6 +195,64 @@ func TestTelemetry_Limit(t *testing.T) {
 	assert.Len(t, rows, 3, "result must be capped at limit=3")
 }
 
+// ── TelemetryCount tests (pagination.total, ADR-010 amendment) ───────────────
+
+// TestTelemetryCount_NoFilter seeds 3 rows and asserts the unbounded count.
+func TestTelemetryCount_NoFilter(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	gpuID := "GPU-count-nofilter-00000000000001"
+	base := time.Now().UTC().Truncate(time.Second)
+	seedFull(t, gpuID, base)
+	seedFull(t, gpuID, base.Add(1*time.Second))
+	seedFull(t, gpuID, base.Add(2*time.Second))
+
+	total, err := db.TelemetryCount(ctx, testPool, gpuID, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total, "unbounded count must include all 3 rows")
+}
+
+// TestTelemetryCount_WindowFilter seeds 4 rows and asserts the windowed count
+// matches the same inclusive-bounds predicate as Telemetry.
+func TestTelemetryCount_WindowFilter(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	gpuID := "GPU-count-window-0000000000000002"
+	base := time.Now().UTC().Truncate(time.Second).Add(-3 * time.Minute)
+	t1, t2, t3, t4 := base, base.Add(1*time.Minute), base.Add(2*time.Minute), base.Add(3*time.Minute)
+	seedFull(t, gpuID, t1)
+	seedFull(t, gpuID, t2)
+	seedFull(t, gpuID, t3)
+	seedFull(t, gpuID, t4)
+
+	total, err := db.TelemetryCount(ctx, testPool, gpuID, &t2, &t3)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "window [t2,t3] must count exactly 2 rows")
+}
+
+// TestTelemetryCount_UnknownGPU asserts count 0 for a GPU with no rows.
+func TestTelemetryCount_UnknownGPU(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	total, err := db.TelemetryCount(ctx, testPool, "GPU-count-none-ffffffffffffffffff", nil, nil)
+	require.NoError(t, err)
+	assert.Zero(t, total, "unknown GPU must count 0 rows")
+}
+
+// TestTelemetryCount_CancelledContext covers the error-return branch.
+func TestTelemetryCount_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := db.TelemetryCount(ctx, testPool, "GPU-some-id", nil, nil)
+	require.Error(t, err, "TelemetryCount with cancelled context must error")
+	assert.Contains(t, err.Error(), "TelemetryCount",
+		"error must carry the function name for diagnosability")
+}
+
 // ── Error-path coverage tests ────────────────────────────────────────────────
 // The tests below use a pre-cancelled context to trigger the query-error
 // branches in DistinctGPUIDs, GPUExists, and Telemetry. pgxpool returns

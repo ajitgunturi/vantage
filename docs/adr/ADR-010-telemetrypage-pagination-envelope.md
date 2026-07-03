@@ -1,6 +1,6 @@
 # ADR-010: `TelemetryPage` Pagination Envelope with Limit+1 Sentinel
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-07-03: `total` added by owner directive)
 **Date:** 2026-07-03
 **Phase:** 6 — Production Hardening + Assignment Alignment (addresses audit finding F-06 and API requirement API-05)
 **Backfilled:** 2026-07-03
@@ -52,6 +52,7 @@ Response shape:
   "pagination": {
     "limit":    50,
     "offset":   0,
+    "total":    1234,
     "has_next": true
   }
 }
@@ -66,7 +67,14 @@ Key implementation choices:
 2. **`limit+1` sentinel for `has_next`** — the DB query fetches `limit+1` rows.
    If the result has `limit+1` entries, `has_next = true` and the extra row is
    trimmed before serialisation. If the result has `≤ limit` entries, `has_next = false`.
-   No separate `COUNT(*)` query.
+
+   *Amendment (2026-07-03, owner directive):* a **`total` field** was added to the
+   envelope, computed by a separate `COUNT(*)` over the same filter predicate
+   (`db.TelemetryCount`). This consciously accepts the extra DB round-trip that
+   the original decision avoided — clients asked for the total record count.
+   The sentinel is retained for `has_next` so it stays consistent with the page
+   data under live ingest (the COUNT runs at a slightly different instant and
+   may lag by a few rows; the two queries are not transactionally paired).
 
 3. **Breaking response-shape change** — this replaces the earlier `[]TelemetryRow`
    top-level array response with `TelemetryPage`. Clients written against the
@@ -87,7 +95,10 @@ request more than `MAX_ROWS` rows per page.
 
 - **Positive:** Standard pagination API — clients receive an explicit `has_next`
   flag and can fetch subsequent pages by incrementing `offset`.
-- **Positive:** Single DB query per request (limit+1 sentinel avoids `COUNT(*)`).
+- **Positive (original):** Single DB query per request (limit+1 sentinel avoids `COUNT(*)`).
+  *Superseded by the 2026-07-03 amendment:* the endpoint now issues one extra
+  `COUNT(*)` per request to populate `pagination.total` — an accepted latency
+  cost in exchange for clients knowing the total record count.
 - **Positive:** OFFSET as a pgx placeholder eliminates the SQL injection risk
   (closing Phase 6 security threat T-06-03).
 - **Negative:** Breaking change to the response envelope — existing clients see
@@ -106,6 +117,6 @@ request more than `MAX_ROWS` rows per page.
 | Alternative | Trade-off |
 |---|---|
 | Keep `X-Truncated` / `X-Row-Limit` headers | Non-standard; clients miss them unless they specifically inspect headers; no real pagination (can only tell if truncated, not how to fetch the next page). Finding F-06 in the audit rated this as a user-experience gap requiring resolution. |
-| `COUNT(*)` for total row count | Correct — provides `total_count` to clients. Extra DB round-trip per request; adds latency proportional to table size. The sentinel technique computes `has_next` with zero additional queries and is sufficient for the use case. |
+| `COUNT(*)` for total row count | Correct — provides `total_count` to clients. Extra DB round-trip per request; adds latency proportional to table size. Originally rejected in favour of the sentinel; **adopted by the 2026-07-03 amendment** (owner directive) for the `total` field, while the sentinel still drives `has_next`. |
 | Keyset / cursor-based pagination | Scales to very large datasets with no `OFFSET` scan penalty. Heavier implementation: requires a stable sort key exposed in the response, opaque cursor encoding, and client bookmarking. `OFFSET` is sufficient for the fixture-scale read API and simpler to implement and test. |
 | Separate pagination metadata endpoint | Requires two API calls per "page with metadata" load. Unnecessary complexity when the envelope pattern is simpler and standard. |
