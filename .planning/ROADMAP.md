@@ -156,7 +156,27 @@ Plans:
   4. `GET /api/v1/gpus/{id}/telemetry` supports `limit`/`offset` pushed down into the composite-index SQL path with pagination metadata in the response, and the regenerated OpenAPI spec documents it.
   5. A GitHub Actions workflow runs `make build test coverage lint` on every push and PR, and all services log through structured `log/slog`.
 
-**Plans**: TBD
+**Plans**: 8 plans
+
+**Wave 1** *(parallel — disjoint files)*
+
+- [ ] 06-01-PLAN.md — slog structured-logging foundation across all services (OBS-02)
+- [ ] 06-02-PLAN.md — Gateway health endpoints + limit/offset pagination + swagger regen (OBS-01, API-05)
+
+**Wave 2** *(parallel; depend on 06-01)*
+
+- [ ] 06-03-PLAN.md — MQ /healthz + /readyz on the control-plane mux (OBS-01)
+- [ ] 06-04-PLAN.md — Streamer health listener + Runner readiness (OBS-01)
+- [ ] 06-05-PLAN.md — Collector health listener + Runner readiness (OBS-01)
+
+**Wave 3** *(depends on 06-02..06-05)*
+
+- [ ] 06-06-PLAN.md — Helm probes + resources + gateway HPA + scaling story (OPS-07, OPS-08, OPS-09)
+
+**Wave 4** *(finalization)*
+
+- [ ] 06-07-PLAN.md — GitHub Actions CI running the make gates (QA-07)
+- [ ] 06-08-PLAN.md — AI_PROMPTS.md verbatim prompt log + README accuracy pass (DOC-02, DOC-03)
 
 ### Phase 7: MQ Durability — Opt-in WAL Persistence
 
