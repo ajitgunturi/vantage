@@ -1,8 +1,8 @@
 {{- if and .Values.enabled .Values.useFixtureConfigMap }}
 # Fixture DCGM CSV for the streamer in kind — OPT-IN via useFixtureConfigMap.
 # Default deployment uses the CSV baked into the streamer image at /data
-# (real dcgm_metrics_*.csv when built on the dev machine, committed fixture
-# otherwise — see build/streamer.Dockerfile). The real 1.1MB CSV cannot ship
+# (supplied explicitly via `make deploy CSV=...` — DEPLOY_CSV build arg,
+# see build/streamer.Dockerfile; no fallback). The real 1.1MB CSV cannot ship
 # via ConfigMap: it exceeds the 1MiB ConfigMap/etcd size limit. 12-column
 # layout mirrors test/e2e/pipeline_test.go writeFixtureCSV — distinct
 # (uuid, metric_name) pairs so exactly-once assertions hold.

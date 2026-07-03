@@ -15,19 +15,19 @@ COPY . .
 # Static binary: CGO_ENABLED=0 — no libc needed in distroless.
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/streamer ./cmd/streamer
 
-# Bake the telemetry CSV into the image at /data/dcgm_metrics.csv.
-# Prefer the real DCGM export (dcgm_metrics_*.csv — gitignored, local-only,
-# present when building on the dev machine); fall back to the committed
-# 12-row fixture so builds succeed on clones without the data file.
+# Bake the telemetry CSV into the image at /data/dcgm_metrics.csv — ONLY when
+# DEPLOY_CSV is passed (a context-relative path, staged by `make deploy CSV=...`).
+# Without it the image is CSV-less: dev/test flows (docker compose, e2e/smoke)
+# mount testdata/fixture.csv over /data/dcgm_metrics.csv at runtime instead.
+# There is deliberately NO fallback — a deploy must choose its data explicitly.
 # The image is built locally and loaded into kind — never pushed to a registry,
 # so baking local data does not leak it beyond the dev machine.
+ARG DEPLOY_CSV=
 RUN mkdir -p /out/data && \
-    f=$(ls dcgm_metrics_*.csv 2>/dev/null | head -n1); \
-    if [ -n "$f" ]; then \
-        echo "baking real DCGM CSV: $f"; cp "$f" /out/data/dcgm_metrics.csv; \
+    if [ -n "$DEPLOY_CSV" ]; then \
+        echo "baking DCGM CSV: $DEPLOY_CSV"; cp "$DEPLOY_CSV" /out/data/dcgm_metrics.csv; \
     else \
-        echo "no dcgm_metrics_*.csv in context — baking committed fixture"; \
-        cp build/fixture/dcgm_metrics.csv /out/data/dcgm_metrics.csv; \
+        echo "no DEPLOY_CSV — CSV-less image (runtime mount required, or build via 'make deploy CSV=...')"; \
     fi
 
 # ── Stage 2: final ──────────────────────────────────────────────────────────

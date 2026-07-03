@@ -4,9 +4,10 @@
 # unrelated changes, or must never enter an image layer (.git history, .env).
 # NOTE: dockerignore patterns anchor at the context root — `docs/` does NOT
 # match pkg/docs (the swag-generated Go package the gateway compiles in).
-# NOTE: dcgm_metrics_*.csv is deliberately NOT excluded — the streamer image
-# bakes the real (gitignored, local-only) DCGM export into /data at build time,
-# falling back to build/fixture/dcgm_metrics.csv when the file is absent.
+# NOTE: the streamer image bakes a CSV only via the DEPLOY_CSV build arg
+# (`make deploy CSV=...` stages it at build/.deploy/dcgm_metrics.csv, which
+# must stay IN the context). The root-level real DCGM export is excluded below —
+# patterns anchor at the context root, so build/.deploy/ is unaffected.
 .git
 .planning
 .env
@@ -15,3 +16,4 @@ coverage.*
 deployments/
 docs/
 *.md
+dcgm_metrics_*.csv

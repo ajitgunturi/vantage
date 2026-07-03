@@ -37,7 +37,7 @@ export DOCKER_HOST TESTCONTAINERS_RYUK_DISABLED
 .DEFAULT_GOAL := help
 
 .PHONY: help tools check-env check-protoc proto build test coverage e2e swagger lint tidy clean \
-        smoke smoke-% docker docker-% kind-up helm-install kind-down \
+        smoke smoke-% docker docker-% docker-streamer kind-up helm-install kind-down \
         dev-up dev-down kind-load deploy dependency-update soak test-harness
 
 help: ## List targets
@@ -132,6 +132,15 @@ docker: check-env $(addprefix docker-,$(DOCKER_IMAGES)) ## Build all five images
 docker-%: check-env ## Build a single service image (build/%.Dockerfile)
 	docker build -f build/$*.Dockerfile -t vantage/$*:dev .
 
+# Explicit rule (overrides docker-%): the streamer image optionally bakes a CSV.
+# DEPLOY_CSV must be a build-context-relative path (make deploy stages it under
+# build/.deploy/). Without DEPLOY_CSV the image is CSV-less — dev/test flows
+# mount testdata/fixture.csv at runtime (see docker-compose.full.yml).
+docker-streamer: check-env ## Build the streamer image (DEPLOY_CSV=<context path> bakes a CSV; unset = CSV-less)
+	docker build -f build/streamer.Dockerfile \
+		$(if $(DEPLOY_CSV),--build-arg DEPLOY_CSV=$(DEPLOY_CSV)) \
+		-t vantage/streamer:dev .
+
 kind-up: check-env ## Create local kind cluster
 	kind create cluster --name vantage
 
@@ -153,7 +162,30 @@ kind-load: check-env ## Load all five vantage/*:dev images into the vantage kind
 		kind load docker-image vantage/$$img:dev --name vantage; \
 	done
 
-deploy: check-env docker kind-load helm-install ## Full deploy cycle: docker build -> kind-load -> helm install
+# deploy requires an explicit telemetry CSV: pass CSV=<path>, or answer the
+# prompt on an interactive terminal. Scripted/CI runs without CSV= fail loudly —
+# the streamer image never bakes demo data implicitly. The file is staged into
+# the build context (build/.deploy/, gitignored) so any on-disk path works.
+deploy: check-env ## Full deploy (CSV=<path> required; prompts on a TTY): docker build -> kind-load -> helm install
+	@csv='$(CSV)'; \
+	if [ -z "$$csv" ] && [ -t 0 ]; then \
+		printf "Path to DCGM telemetry CSV to bake into the streamer image: "; \
+		read -r csv; \
+	fi; \
+	if [ -z "$$csv" ]; then \
+		echo "ERROR: no telemetry CSV given — the streamer image bakes no data unless you supply one." >&2; \
+		echo "Usage: make deploy CSV=/path/to/your.csv" >&2; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$csv" ] || [ ! -r "$$csv" ]; then \
+		echo "ERROR: CSV not found or not readable: $$csv" >&2; \
+		exit 1; \
+	fi; \
+	echo "== deploy: baking $$csv into the streamer image =="; \
+	mkdir -p build/.deploy && cp "$$csv" build/.deploy/dcgm_metrics.csv; \
+	$(MAKE) docker DEPLOY_CSV=build/.deploy/dcgm_metrics.csv && \
+		$(MAKE) kind-load && $(MAKE) helm-install; \
+	status=$$?; rm -rf build/.deploy; exit $$status
 
 soak: check-env ## Run sustained pipeline soak (SOAK_DURATION=60, SOAK_STREAMERS=3)
 	@bash scripts/soak.sh

@@ -37,6 +37,9 @@ coverage.html
 *.pdf
 dcgm_metrics_*.csv
 
+# Transient CSV staged by `make deploy CSV=...` for the streamer image bake
+build/.deploy/
+
 # Machine-local make environment (self-templated by the Makefile — see check-env)
 .env
 # Committed reference template (re-included: a global gitignore may match .env.*)
