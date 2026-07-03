@@ -81,7 +81,7 @@
 ### Observability (OBS)
 
 - [ ] **OBS-01**: Every service exposes `/healthz` (liveness) and `/readyz` (readiness) — gateway readiness pings the DB pool, MQ readiness reflects the gRPC server, streamer/collector run a lightweight `net/http` health listener
-- [ ] **OBS-02**: All services log through structured `log/slog` (stdlib): JSON handler, level via env, per-service attribute — replacing stdlib `log`
+- [x] **OBS-02**: All services log through structured `log/slog` (stdlib): JSON handler, level via env, per-service attribute — replacing stdlib `log`
 
 ### Documentation & Manual Verification (DOC / QA) — cross-cutting cadence
 
@@ -167,7 +167,7 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | DOC-02 | Phase 6 | Pending |
 | DOC-03 | Phase 6 | Pending |
 | OBS-01 | Phase 6 | Pending |
-| OBS-02 | Phase 6 | Pending |
+| OBS-02 | Phase 6 | Complete |
 | OPS-07 | Phase 6 | Pending |
 | OPS-08 | Phase 6 | Pending |
 | OPS-09 | Phase 6 | Pending |
