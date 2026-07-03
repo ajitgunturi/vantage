@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,6 +16,82 @@ import (
 	"github.com/ajitg/vantage/pkg/models"
 	"github.com/ajitg/vantage/pkg/pb"
 )
+
+// Runner holds Collector runtime state including atomic readiness. It wraps the
+// dial+reconnect orchestration previously in the package-level Run function.
+// Use NewRunner to construct; call Run to start the consume loop.
+type Runner struct {
+	cfg   Config
+	pool  *pgxpool.Pool
+	ready atomic.Bool
+}
+
+// NewRunner creates a new Runner with the given config and DB pool. The runner
+// is not ready until Run has successfully opened a Consume stream to the MQ.
+func NewRunner(cfg Config, pool *pgxpool.Pool) *Runner {
+	return &Runner{cfg: cfg, pool: pool}
+}
+
+// IsReady reports whether the runner currently has an active Consume stream.
+// Returns false on a freshly created Runner and transitions to true once the
+// MQ Consume RPC succeeds. Resets to false when the stream ends (reconnecting).
+// Safe to call from any goroutine (backed by atomic.Bool).
+func (r *Runner) IsReady() bool {
+	return r.ready.Load()
+}
+
+// Run is the outer reconnect loop for the Collector microservice (COLL-02).
+// It dials the MQ, calls consumeStream for one stream attempt (signalling
+// readiness via r.ready when the stream opens / closes), and retries on
+// failure with exponential backoff — base 100ms, cap 5s.
+//
+// The loop exits only when ctx is cancelled (graceful shutdown).
+// Error classification mirrors the package-level Run: context.Canceled / ctx.Err() non-nil → clean exit;
+// any other error → log and retry.
+func (r *Runner) Run(ctx context.Context) error {
+	backoff := 100 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		conn, err := dialMQ(r.cfg.MQAddr)
+		if err != nil {
+			slog.Warn("dial failed, retrying", "error", err, "backoff", backoff)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+		// Do NOT reset backoff here: grpc.NewClient is lazy (G-1 reasoning).
+
+		consumeStart := time.Now()
+		err = consumeStream(ctx, pb.NewMQServiceClient(conn), r.pool, r.cfg, r.ready.Store)
+		conn.Close() //nolint:errcheck
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// Reset backoff only after a long-lived stream (>5s) — proves a genuine connection (G-1).
+		if time.Since(consumeStart) > 5*time.Second {
+			backoff = 100 * time.Millisecond
+		}
+
+		slog.Info("stream ended, reconnecting", "error", err, "backoff", backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		backoff = min(backoff*2, maxBackoff)
+	}
+}
 
 // dialMQ opens a gRPC client connection to the MQ server at addr.
 // Uses insecure transport (internal service mesh) and keepalive parameters
@@ -104,10 +181,11 @@ func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryM
 	return nil
 }
 
-// Consume opens a single bidi Consume stream to the MQ and processes messages
-// until ctx is cancelled or the stream ends. It is the exported testing seam:
-// callers pass a pre-dialled pb.MQServiceClient (e.g., over bufconn in tests or
-// a real grpc.ClientConn in production via Run).
+// consumeStream is the internal implementation shared by Consume and Runner.Run.
+// markReady is an optional callback invoked with true after the MQ Consume stream
+// opens and with false (via defer) when it closes. Pass nil from Consume (no
+// readiness tracking needed); Runner.Run passes r.ready.Store to expose
+// stream connectivity via IsReady() without altering Consume's exported signature.
 //
 // Two-goroutine bidi split (ADR-001, must-have truth):
 //   - recv goroutine: sole caller of stream.Recv(). Forwards messages over
@@ -124,7 +202,7 @@ func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryM
 //
 // Ack ordering: each ack is sent per-message after the whole batch persists,
 // replenishing exactly one credit slot per ack in the broker's sliding window.
-func Consume(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool, cfg Config) error {
+func consumeStream(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool, cfg Config, markReady func(bool)) error {
 	// Derive a child context so that an early error return (e.g. persistBatch failure)
 	// cancels the recv goroutine and prevents it from leaking (Collector MINOR).
 	ctx, cancel := context.WithCancel(ctx)
@@ -133,6 +211,14 @@ func Consume(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool,
 	stream, err := client.Consume(ctx)
 	if err != nil {
 		return fmt.Errorf("collector: open stream: %w", err)
+	}
+
+	// Stream is now established — signal readiness if a callback was provided.
+	// Defer the false signal so IsReady() resets when consumeStream returns
+	// (stream ended or error), signalling "not connected" during reconnect backoff.
+	if markReady != nil {
+		markReady(true)
+		defer markReady(false)
 	}
 
 	// Buffer sized to cfg.Credit so the recv goroutine can always accept from
@@ -221,73 +307,22 @@ func Consume(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool,
 	}
 }
 
+// Consume opens a single bidi Consume stream to the MQ and processes messages
+// until ctx is cancelled or the stream ends. It is the exported testing seam:
+// callers pass a pre-dialled pb.MQServiceClient (e.g., over bufconn in tests or
+// a real grpc.ClientConn in production via Run).
+//
+// Consume delegates to consumeStream with no readiness tracking (markReady=nil).
+// Runner.Run uses consumeStream directly to gate IsReady() on stream connectivity.
+func Consume(ctx context.Context, client pb.MQServiceClient, pool *pgxpool.Pool, cfg Config) error {
+	return consumeStream(ctx, client, pool, cfg, nil)
+}
+
 // Run is the outer reconnect loop for the Collector microservice (COLL-02).
-// It dials the MQ, calls Consume for one stream attempt, and retries on failure
-// with exponential backoff — base 100ms, cap 5s (T-03-03b / DoS mitigation).
+// It is a backward-compatible one-liner that delegates to NewRunner(cfg, pool).Run(ctx)
+// so existing call sites and tests stay valid without change.
 //
-// The loop exits only when ctx is cancelled (graceful shutdown) or when ctx.Err()
-// is non-nil on entry (already cancelled before first attempt).
-//
-// Error classification: context.Canceled / ctx.Err() non-nil → clean exit;
-// any other Consume error → log "stream ended — reconnecting" and retry.
-// DSN and sensitive data are never included in logged or returned errors (T-03-03c).
-//
-// Backoff escalation (G-1): grpc.NewClient is lazy — a "successful" dial never
-// makes a real TCP connection, so a dial that does not error is NOT evidence that
-// the MQ is actually reachable. Backoff is therefore reset only after a Consume
-// attempt that survived long enough (>5s) to indicate a genuine working connection.
-// Unconditional reset at dial time pins retries at 100ms forever against a
-// repeatedly-unreachable MQ.
+// For readiness-aware operation (e.g. cmd/collector), use NewRunner directly.
 func Run(ctx context.Context, cfg Config, pool *pgxpool.Pool) error {
-	backoff := 100 * time.Millisecond
-	const maxBackoff = 5 * time.Second
-
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		conn, err := dialMQ(cfg.MQAddr)
-		if err != nil {
-			slog.Warn("dial failed, retrying", "error", err, "backoff", backoff)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			backoff = min(backoff*2, maxBackoff)
-			continue
-		}
-		// Do NOT reset backoff here: grpc.NewClient is lazy and never makes a real
-		// TCP connection, so a successful dial is not evidence the MQ is up (G-1).
-
-		consumeStart := time.Now()
-		err = Consume(ctx, pb.NewMQServiceClient(conn), pool, cfg)
-		conn.Close() //nolint:errcheck
-
-		// Only exit if OUR context was canceled (graceful shutdown signal).
-		// A server-side GracefulStop translates to codes.Canceled on the client,
-		// which gRPC-go may surface as stdlib context.Canceled — but OUR ctx is
-		// still valid in that case, so we must NOT exit: we should reconnect.
-		// Checking ctx.Err() exclusively is the only reliable discriminant.
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		// Reset backoff only after a Consume that survived long enough to prove
-		// the MQ was genuinely up (>5s of uptime indicates a real connection). A
-		// Consume that fails in <5s (e.g. connect refused on first real RPC) does
-		// NOT reset, so the exponential backoff escalates as intended (G-1 fix).
-		if time.Since(consumeStart) > 5*time.Second {
-			backoff = 100 * time.Millisecond
-		}
-
-		slog.Info("stream ended, reconnecting", "error", err, "backoff", backoff)
-		select {
-		case <-time.After(backoff):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		backoff = min(backoff*2, maxBackoff)
-	}
+	return NewRunner(cfg, pool).Run(ctx)
 }
