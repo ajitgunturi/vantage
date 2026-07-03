@@ -38,6 +38,8 @@ definitions:
         type: integer
       offset:
         type: integer
+      total:
+        type: integer
     type: object
   gateway.TelemetryPage:
     properties:
@@ -82,6 +84,7 @@ paths:
         Returns time-series metric rows for a GPU ordered newest-first (API-02).
         Optional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).
         Use limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).
+        pagination.total carries the total row count for the filter; pagination.has_next signals more pages.
       parameters:
       - description: GPU UUID
         in: path

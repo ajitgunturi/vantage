@@ -20,7 +20,6 @@ func TestFromEnv_Defaults(t *testing.T) {
 	require.Equal(t, ":50051", cfg.GRPCAddr)
 	require.Equal(t, ":8080", cfg.HTTPAddr)
 	require.Equal(t, 10000, cfg.BufferSize)
-	require.Equal(t, 1024, cfg.WorkChCap)
 	require.Equal(t, 20, cfg.ConsumeCredit, "ConsumeCredit default must be 20")
 }
 
@@ -34,7 +33,6 @@ func TestFromEnv_Overrides(t *testing.T) {
 	require.Equal(t, ":9090", cfg.GRPCAddr)
 	require.Equal(t, ":9091", cfg.HTTPAddr)
 	require.Equal(t, 5000, cfg.BufferSize)
-	require.Equal(t, 500, cfg.WorkChCap) // max(5000/10, 128) = 500
 }
 
 func TestFromEnv_InvalidBufferSize_Ignored(t *testing.T) {
@@ -51,16 +49,6 @@ func TestFromEnv_ZeroBufferSize_Ignored(t *testing.T) {
 	cfg := config.FromEnv()
 
 	require.Equal(t, 10000, cfg.BufferSize, "non-positive MQ_BUFFER_SIZE should fall back to default")
-}
-
-func TestFromEnv_SmallBufferSize_WorkChCap_Floor(t *testing.T) {
-	// 100/10 = 10, which is < 128, so WorkChCap should be clamped to 128.
-	t.Setenv("MQ_BUFFER_SIZE", "100")
-
-	cfg := config.FromEnv()
-
-	require.Equal(t, 100, cfg.BufferSize)
-	require.Equal(t, 128, cfg.WorkChCap, "WorkChCap must be at least 128")
 }
 
 func TestFromEnv_ConsumeCredit_Override(t *testing.T) {

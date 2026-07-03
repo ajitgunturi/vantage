@@ -53,13 +53,6 @@ message ConsumeClientMsg {
     string consumer_id = 3; // identifies this consumer instance (logging only; truncated to 64 bytes)
 }
 
-// ConsumeRequest is retained for backwards compatibility with existing generated-code references,
-// but is no longer used as the Consume RPC input (superseded by ConsumeClientMsg in ADR-001).
-// It will be removed in a future cleanup phase.
-message ConsumeRequest {
-    string consumer_id = 1;
-}
-
 service MQService {
     // Produce enqueues a single telemetry message.
     // Never blocks. Drop-oldest fires silently when the buffer is full.

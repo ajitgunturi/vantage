@@ -469,6 +469,58 @@ func TestPersistBatchError_NoAcks(t *testing.T) {
 			"unacked messages will be redelivered by the broker's requeue-on-disconnect")
 }
 
+// TestTickerFlushError verifies that Consume returns a flush error when the
+// time-triggered flush (ticker) fires and persistBatch fails.
+// This covers the ticker-path in consumeStream that TestPersistBatchError_NoAcks
+// does not exercise (that test triggers via size flush, not ticker flush).
+func TestTickerFlushError(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	// Create a pool and close it immediately so every SendBatch → Exec call fails.
+	dsn := testCtr.MustConnectionString(ctx, "sslmode=disable")
+	failPool, err := pgxpool.New(ctx, dsn)
+	require.NoError(t, err, "create fail pool")
+	failPool.Close()
+
+	// Pre-load 3 valid messages (< BatchSize=10) so the size-trigger never fires.
+	// The ticker fires after FlushMS=50ms, triggering persistBatch on the closed pool.
+	const nMsgs = 3
+	msgs := make([]*pb.TelemetryMessage, nMsgs)
+	for i := range msgs {
+		msgs[i] = &pb.TelemetryMessage{
+			Id:         uint64(i + 1),
+			Uuid:       fmt.Sprintf("GPU-TICK-%04d-0000-0000-0000-000000000000", i),
+			GpuId:      fmt.Sprintf("%d", i),
+			MetricName: "DCGM_FI_DEV_GPU_UTIL",
+			Timestamp:  time.Now().UTC().Add(time.Duration(i) * time.Microsecond).Format(time.RFC3339Nano),
+			Value:      float64(i + 1),
+			Device:     "nvidia0",
+			ModelName:  "NVIDIA H100",
+			Hostname:   "test-host",
+		}
+	}
+
+	consumeCtx, consumeCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer consumeCancel()
+
+	fStream := &fakeConsumeStream{ctx: consumeCtx, msgs: msgs}
+	fakeClient := &fakeMQClient{stream: fStream}
+
+	cfg := collector.Config{
+		BatchSize: 10,  // > nMsgs: size-trigger never fires
+		FlushMS:   50,  // 50ms ticker fires quickly for test speed
+		Credit:    20,
+	}
+
+	_ = collector.Consume(consumeCtx, fakeClient, failPool, cfg)
+
+	// Zero acks: ticker flush triggered persistBatch which failed (closed pool),
+	// so flush returned without acking — same invariant as TestPersistBatchError_NoAcks.
+	require.Zero(t, fStream.acksSent(),
+		"no acks must be sent when ticker flush fails — unacked messages will be redelivered by broker")
+}
+
 // TestReconnect covers COLL-02: the collector reconnects after the MQ drops the
 // stream. An ephemeral TCP listener is used so the server can be stopped and
 // re-bound. The post-restart messages must land after reconnection.

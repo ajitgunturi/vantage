@@ -1,0 +1,13 @@
+# Default values for the streamer sub-chart.
+# The umbrella chart (deployments/values.yaml) overrides these per environment.
+
+# replicaCount controls the number of Streamer replicas.
+# The spec supports up to 10 concurrent instances (TestStream_Concurrent10).
+# Override via: --set streamer.replicaCount=N or in the umbrella values.yaml.
+replicaCount: 1
+
+# useFixtureConfigMap: when true, mounts the 12-row / 3-GPU fixture ConfigMap
+# over /data, shadowing the CSV baked into the streamer image. Default false —
+# the image carries the real DCGM export (247 GPUs) when built on the dev
+# machine, or the committed fixture otherwise (see build/streamer.Dockerfile).
+useFixtureConfigMap: false

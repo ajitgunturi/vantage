@@ -330,53 +330,6 @@ func (x *ConsumeClientMsg) GetConsumerId() string {
 	return ""
 }
 
-// ConsumeRequest is retained for backwards compatibility with existing generated-code references,
-// but is no longer used as the Consume RPC input (superseded by ConsumeClientMsg in ADR-001).
-// It will be removed in a future cleanup phase.
-type ConsumeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ConsumerId    string                 `protobuf:"bytes,1,opt,name=consumer_id,json=consumerId,proto3" json:"consumer_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConsumeRequest) Reset() {
-	*x = ConsumeRequest{}
-	mi := &file_mq_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConsumeRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConsumeRequest) ProtoMessage() {}
-
-func (x *ConsumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mq_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConsumeRequest.ProtoReflect.Descriptor instead.
-func (*ConsumeRequest) Descriptor() ([]byte, []int) {
-	return file_mq_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *ConsumeRequest) GetConsumerId() string {
-	if x != nil {
-		return x.ConsumerId
-	}
-	return ""
-}
-
 var File_mq_proto protoreflect.FileDescriptor
 
 const file_mq_proto_rawDesc = "" +
@@ -408,9 +361,6 @@ const file_mq_proto_rawDesc = "" +
 	"\x06ack_id\x18\x01 \x01(\x04R\x05ackId\x12\x16\n" +
 	"\x06credit\x18\x02 \x01(\x05R\x06credit\x12\x1f\n" +
 	"\vconsumer_id\x18\x03 \x01(\tR\n" +
-	"consumerId\"1\n" +
-	"\x0eConsumeRequest\x12\x1f\n" +
-	"\vconsumer_id\x18\x01 \x01(\tR\n" +
 	"consumerId2\x86\x01\n" +
 	"\tMQService\x128\n" +
 	"\aProduce\x12\x15.mq.v1.ProduceRequest\x1a\x16.mq.v1.ProduceResponse\x12?\n" +
@@ -428,13 +378,12 @@ func file_mq_proto_rawDescGZIP() []byte {
 	return file_mq_proto_rawDescData
 }
 
-var file_mq_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_mq_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_mq_proto_goTypes = []any{
 	(*TelemetryMessage)(nil), // 0: mq.v1.TelemetryMessage
 	(*ProduceRequest)(nil),   // 1: mq.v1.ProduceRequest
 	(*ProduceResponse)(nil),  // 2: mq.v1.ProduceResponse
 	(*ConsumeClientMsg)(nil), // 3: mq.v1.ConsumeClientMsg
-	(*ConsumeRequest)(nil),   // 4: mq.v1.ConsumeRequest
 }
 var file_mq_proto_depIdxs = []int32{
 	0, // 0: mq.v1.ProduceRequest.message:type_name -> mq.v1.TelemetryMessage
@@ -460,7 +409,7 @@ func file_mq_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mq_proto_rawDesc), len(file_mq_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

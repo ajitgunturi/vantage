@@ -13,7 +13,7 @@
 - [x] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry (completed 2026-06-30)
 - [x] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar (completed 2026-07-02)
 - [x] **Phase 6: Production Hardening + Assignment Alignment** - Close the review/audit gaps: AI-prompt log, health endpoints + probes, resources/HPA, pagination, CI, slog (completed 2026-07-03)
-- [ ] **Phase 7: MQ Durability — Opt-in WAL Persistence** - Crash-durable broker mode behind the Store interface; at-least-once via replay
+- [~] **Phase 7: MQ Durability — Opt-in WAL Persistence (DEFERRED — optional post-v1 enhancement)** - Crash-durable broker mode behind the Store interface; at-least-once via replay
 
 ## Phase Details
 
@@ -178,7 +178,11 @@ Plans:
 - [x] 06-07-PLAN.md — GitHub Actions CI running the make gates (QA-07)
 - [x] 06-08-PLAN.md — AI_PROMPTS.md verbatim prompt log + README accuracy pass (DOC-02, DOC-03)
 
-### Phase 7: MQ Durability — Opt-in WAL Persistence
+### Phase 7: MQ Durability — Opt-in WAL Persistence (DEFERRED — optional, post-v1)
+
+> **DEFERRED 2026-07-03:** WAL durability is NOT part of the v1 submission. The design below is
+> retained as the frozen design record; the extension is tracked in `docs/FUTURE.md` and
+> `docs/adr/ADR-009-opt-in-wal-extension.md`.
 
 **Goal**: With durability enabled via config, the MQ persists produced messages to a write-ahead log and replays them on restart, so a broker crash loses no un-consumed message — while the in-memory default stays byte-for-byte unchanged.
 **Mode:** mvp
@@ -203,7 +207,7 @@ Plans:
 | 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
 | 5. DevOps + Quality Gates | 5/5 | Complete    | 2026-07-02 |
 | 6. Production Hardening + Assignment Alignment | 8/8 | Complete   | 2026-07-03 |
-| 7. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
+| 7. MQ Durability — Opt-in WAL Persistence | 0/TBD | Deferred (optional post-v1) | - |
 
 ## Coverage
 
@@ -215,3 +219,4 @@ Plans:
 *Roadmap created: 2026-06-27*
 *Updated 2026-06-28: inserted Phase 01.1 (bidi at-least-once, ADR-001); +MQ-09/MQ-10.*
 *Updated 2026-07-03: inserted Phase 6 (Production Hardening + Assignment Alignment) from the code-review/assignment-alignment audit; WAL durability renumbered Phase 6 → Phase 7. +DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07; ENH-03 promoted to v1 (OPS-07); API pagination moved out of Out-of-Scope (API-05).*
+*Updated 2026-07-03: Phase 7 (WAL durability) DEFERRED as an optional post-v1 enhancement (owner directive); design frozen, tracked in docs/FUTURE.md + ADR-009. v1 submission = Phases 1–6 on branch adr-backfill.*

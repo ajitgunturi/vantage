@@ -115,3 +115,16 @@ func TestMigrate_InvalidDSNError(t *testing.T) {
 	assert.Contains(t, err.Error(), "db: migrate init:",
 		"error must be wrapped with the expected prefix from Migrate")
 }
+
+// TestMigrate_PostgreSQLPrefix_Error verifies that Migrate correctly handles a
+// DSN with the "postgresql://" prefix (the longer synonym for "postgres://").
+// The prefix must be converted to "pgx5://" before passing to golang-migrate.
+// An invalid port (99999) still causes a "migrate init:" error — but the test
+// exercises the prefix-conversion branch that the postgres:// unit test skips.
+func TestMigrate_PostgreSQLPrefix_Error(t *testing.T) {
+	err := db.Migrate(context.Background(),
+		"postgresql://user:pass@localhost:99999/vantage")
+	require.Error(t, err, "invalid DSN with postgresql:// prefix must error")
+	assert.Contains(t, err.Error(), "db: migrate init:",
+		"error must be wrapped with the expected prefix from Migrate")
+}

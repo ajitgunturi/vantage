@@ -5,16 +5,76 @@ package collector_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/ajitg/vantage/internal/collector"
 	"github.com/ajitg/vantage/pkg/pb"
 )
+
+// ── failSendStream helpers ───────────────────────────────────────────────────
+//
+// failSendStream implements pb.MQService_ConsumeClient.
+// Send always returns a synthetic error; Recv blocks until context is done.
+// This lets TestCreditHandshakeFails trigger the "send credit handshake" error
+// branch in consumeStream without a real gRPC server or database.
+type failSendStream struct {
+	ctx context.Context
+}
+
+func (f *failSendStream) Send(_ *pb.ConsumeClientMsg) error {
+	return fmt.Errorf("send error: stream unavailable")
+}
+
+func (f *failSendStream) Recv() (*pb.TelemetryMessage, error) {
+	<-f.ctx.Done()
+	return nil, f.ctx.Err()
+}
+
+// grpc.ClientStream interface — no-ops for test purposes.
+func (f *failSendStream) Header() (metadata.MD, error) { return nil, nil }
+func (f *failSendStream) Trailer() metadata.MD         { return nil }
+func (f *failSendStream) CloseSend() error             { return nil }
+func (f *failSendStream) Context() context.Context     { return f.ctx }
+func (f *failSendStream) SendMsg(_ any) error          { return nil }
+func (f *failSendStream) RecvMsg(_ any) error          { return nil }
+
+// failSendClient returns a failSendStream via Consume so that Send fails on
+// the credit-handshake immediately after the stream opens.
+type failSendClient struct {
+	ctx context.Context
+}
+
+func (f *failSendClient) Produce(_ context.Context, _ *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
+	return nil, fmt.Errorf("produce not supported in failSendClient")
+}
+
+func (f *failSendClient) Consume(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[pb.ConsumeClientMsg, pb.TelemetryMessage], error) {
+	return &failSendStream{ctx: f.ctx}, nil
+}
+
+// TestCreditHandshakeFails verifies that Consume returns a wrapped error containing
+// "send credit handshake" when the first Send on the stream fails immediately.
+// This covers the credit-handshake error branch in consumeStream (line ~249).
+func TestCreditHandshakeFails(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	client := &failSendClient{ctx: ctx}
+	cfg := collector.Config{BatchSize: 10, FlushMS: 200, Credit: 20}
+
+	// pool is nil — Consume fails before any DB interaction.
+	err := collector.Consume(ctx, client, nil, cfg)
+	require.Error(t, err, "Consume must error when credit handshake Send fails")
+	require.Contains(t, err.Error(), "send credit handshake",
+		"error message must identify the failed operation for diagnosability")
+}
 
 // TestRunner_NotReadyBeforeStart verifies that a freshly created Runner reports
 // IsReady() == false before Run is called. This is the TDD RED gate for the

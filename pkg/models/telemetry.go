@@ -47,7 +47,8 @@ type GpuMetric struct {
 //
 // Column order (positions $1..$11) matches the natural-key constraint
 // (uq_gpu_metrics_natural_key) and the argument order the Collector passes
-// to pgxpool.Pool.QueryRow / CopyFromRows:
+// to pgx.Batch.Queue / pgxpool.Pool.SendBatch (ADR-007: pgx.Batch+ON CONFLICT
+// chosen over CopyFrom because CopyFrom cannot express ON CONFLICT):
 //
 //  $1  gpu_id      — GpuMetric.GpuID      (UUID string)
 //  $2  timestamp   — GpuMetric.Timestamp  (time.Time, UTC)

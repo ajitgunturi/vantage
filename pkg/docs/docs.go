@@ -46,7 +46,7 @@ const docTemplate = `{
         },
         "/gpus/{id}/telemetry": {
             "get": {
-                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nUse limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).",
+                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nUse limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).\npagination.total carries the total row count for the filter; pagination.has_next signals more pages.",
                 "produces": [
                     "application/json"
                 ],
@@ -175,6 +175,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "offset": {
+                    "type": "integer"
+                },
+                "total": {
                     "type": "integer"
                 }
             }
