@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 06
 current_phase_name: production-hardening-assignment-alignment
 status: verifying
-stopped_at: Completed 06-02-PLAN.md — pagination + health handlers
-last_updated: "2026-07-03T05:23:29.174Z"
+stopped_at: Phase 6 executed + verified on branch phase-06-production-hardening (36+ commits); awaiting PR
+last_updated: "2026-07-03T05:30:04.619Z"
 progress:
   total_phases: 8
   completed_phases: 7
@@ -28,7 +28,7 @@ progress:
 - **Milestone:** v1 (MVP)
 - **Phase:** 06 (production-hardening-assignment-alignment) — EXECUTING
 - **Plan:** 8 of 8
-- **Status:** Phase complete — ready for verification
+- **Status:** Phase 6 complete — verified (5/5 SC); ready to ship PR then plan Phase 7 (WAL)
 - **Progress:** [██████████] 100%
 
 ```
@@ -92,11 +92,11 @@ progress:
 ## Session Continuity
 
 **Last session:** 2026-07-03T05:23:17.699Z
-**Stopped at:** Completed 06-02-PLAN.md — pagination + health handlers
+**Stopped at:** Phase 6 executed + verified on branch phase-06-production-hardening (36+ commits); awaiting PR
 **Resume file:** None
 
 - **Last action:** Phase 5 UAT completed 2026-07-02 — Test 1 (kind E2E deploy + smoke-05) and Test 2 (sustained soak: rows grew, produced≥consumed, bounded depth, streamer restored) both human-verified. 05-SECURITY.md written: 17 threats closed / 0 open. VERIFICATION.md canonicalized to passed; phase marked complete in ROADMAP/STATE; PROJECT.md evolved (10 requirements moved to Validated; only WAL remains Active).
-- **Next action:** Plan Phase 6 (`/gsd-plan-phase 6`) — AI-prompt log (DOC-02), health endpoints + probes (OBS-01/OPS-07), resources/HPA (OPS-08/09), pagination (API-05), CI (QA-07), slog (OBS-02), README accuracy (DOC-03). Source: 06-REVIEW.md
+- **Next action:** Push branch phase-06-production-hardening + open PR to main (squash-merge per workflow); after merge: /gsd-plan-phase 7 (WAL durability)
 - **Notes:** Machine-local `.env` must carry `DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock` (three slashes — scheme + absolute path) + `TESTCONTAINERS_RYUK_DISABLED=true`; committed `.env.example` documents this. Phase 7 (WAL) relies on: Phase 2 `uq_gpu_metrics_natural_key` + Phase 3 idempotent upsert for safe at-least-once replay.
 
 ---
