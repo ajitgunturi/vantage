@@ -8,709 +8,157 @@ and exposes it via a documented REST API. Four strictly independent microservice
 CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume bidi stream: msgs ↓ / credit+acks ↑)→ Collector → PostgreSQL → API Gateway → client
 ```
 
-> This README grows **one phase at a time**. Each phase adds the commands to run and verify the
-> components it ships, so you can always clone the current state and see what works end-to-end.
-
 ## Services
 
 | Service | Entrypoint | Role | Status |
 |---|---|---|---|
-| **MQ** | `cmd/mq/` | Custom in-memory broker — gRPC data plane (`Produce`/`Consume`) + HTTP control plane (`/inspect`) | ✅ Phase 1 |
+| **MQ** | `cmd/mq/` | Custom in-memory broker — gRPC data plane (`Produce`/`Consume`) + HTTP control plane | ✅ Phase 1 |
 | **Streamer** | `cmd/streamer/` | Loops the DCGM CSV forever, restamps `now`, publishes to MQ | ✅ Phase 3 |
 | **Collector** | `cmd/collector/` | Consumes the MQ stream, batch-inserts to Postgres | ✅ Phase 3 |
 | **API Gateway** | `cmd/gateway/` | Read API over Postgres; OpenAPI auto-generated via `swag` | ✅ Phase 4 |
 | **PostgreSQL** | (Helm dep) | Time-series store; schema + connection pool in `pkg/db` | ✅ Phase 2 |
 
-Roadmap and per-phase plans live under [`.planning/`](.planning/); the authoritative spec is
-[`instructions.md`](instructions.md).
-
 ## Prerequisites
 
-- **Go 1.26+** (the only hard requirement to build, test, and smoke-test what exists today)
-- **make**, **curl** — for the quickstart and smoke suite
-- **Docker + `docker compose`** — required for Phase 2: brings up the local Postgres dev stack (`make dev-up`); `psql` is NOT required on the host — `make smoke-02` runs all SQL assertions through the `postgres:17-alpine` container bundled in the compose stack
-- *Later phases:* `protoc` (regenerating proto), `kind` + Helm (Phase 5). Install dev tooling with `make tools`.
+- **Go 1.26+** — the only requirement for `make build`, `make test`, and local smoke checks
+- **make**, **curl**
+- **Docker + `docker compose`** — required for Postgres dev stack (`make dev-up`), integration tests, and image builds
+- **kind + Helm** (for Kubernetes deploy) — install via `make tools`
+- **protoc** (only if regenerating proto) — install via `brew install protobuf` then `make proto`
 
-## Repository layout
+## Make commands
 
-```text
-api/proto/      # shared gRPC contracts (mq.proto)
-cmd/<svc>/      # independent service entrypoints (mq today; others land per phase)
-internal/       # MQ service-private packages (queue, server, http, config)
-pkg/            # the ONLY cross-service surface (pb/ generated code; db/, models/ later)
-scripts/smoke/  # runnable manual smoke checks, one set per phase (+ the mqprobe gRPC client)
-build/          # one multi-stage Dockerfile per service (Phase 5)
-deployments/    # Helm charts (Phase 5)
-Makefile        # build, test, coverage, smoke, proto, docker, k8s
-```
+| Target | Purpose |
+|---|---|
+| `make help` | List all targets |
+| `make tools` | Install dev tools: protoc plugins, swag, golangci-lint, kind |
+| `make proto` | Compile `api/proto/*.proto` → `pkg/pb` |
+| `make build` | Build all four service binaries into `bin/` |
+| `make test` | `go test -race ./...` — unit + integration tests |
+| `make coverage` | Enforce ≥ 90% line coverage on `internal/` and `pkg/` |
+| `make e2e` | End-to-end pipeline tests (requires Docker) |
+| `make swagger` | Auto-generate OpenAPI spec from gateway code annotations |
+| `make lint` | golangci-lint (fallback: `go vet`) |
+| `make tidy` | `go mod tidy` |
+| `make clean` | Remove `bin/` and coverage artifacts |
+| `make smoke` | Run every phase's smoke check |
+| `make smoke-NN` | Run one phase's smoke check (e.g. `make smoke-05`) |
+| `make dev-up` | Start local Postgres via docker compose |
+| `make dev-down` | Stop local Postgres |
+| `make docker` | Build all five service images |
+| `make docker-<svc>` | Build one service image |
+| `make kind-up` | Create the local kind cluster |
+| `make helm-install` | Install/upgrade the umbrella Helm chart |
+| `make kind-down` | Delete the kind cluster |
+| `make kind-load` | Load all five `vantage/*:dev` images into kind |
+| `make deploy` | Full deploy: docker build → kind-load → helm-install |
+| `make dependency-update` | Pull Helm chart dependencies (Bitnami PostgreSQL OCI) |
+| `make soak` | Sustained pipeline soak (`SOAK_DURATION=60`, `SOAK_STREAMERS=3`) |
+| `make test-harness` | Live-infrastructure E2E harness (requires Docker) |
 
-`make help` lists every target.
+## Deploy & Try It
 
-## Quickstart
+Full kind cluster walkthrough — everything needed to evaluate the running system.
 
-### Build
-
-```sh
-make build            # builds every service that exists (skips not-yet-created ones)
-# or just the MQ:
-go build -o bin/mq ./cmd/mq
-```
-
-### Run the MQ
-
-The broker is in-memory — no database or external broker needed.
-
-```sh
-./bin/mq
-# mq: gRPC on :50051, HTTP on :8080, buffer 10000
-```
-
-Configuration is env-first (all optional):
-
-| Env var | Default | Meaning |
-|---|---|---|
-| `MQ_GRPC_ADDR` | `:50051` | gRPC data-plane listen address (`Produce`, `Consume`) |
-| `MQ_HTTP_ADDR` | `:8080` | HTTP control-plane listen address |
-| `MQ_BUFFER_SIZE` | `10000` | Ring-buffer capacity (drop-oldest when full) |
-| `MQ_CONSUME_CREDIT` | `20` | Broker-side **fallback** in-flight window, applied when a consumer's first credit message is ≤ 0. Non-positive/non-numeric values are ignored and the default is kept. |
-
-### Delivery semantics — broker-side at-least-once
-
-As of Phase 01.1 the MQ delivers **at-least-once** over a **bidirectional** `Consume` stream
-(see [`docs/adr/ADR-001`](docs/adr/ADR-001-bidi-at-least-once-delivery.md)):
-
-- The consumer opens the stream and first sends a **credit** message — its in-flight window `C`.
-  The broker never has more than `C` unacked messages out to that consumer (**client-driven flow
-  control**, no over-pull). If that first credit is **≤ 0**, the broker substitutes its own default
-  (`MQ_CONSUME_CREDIT`, default `20`); any `C` above the **ceiling of `1000`** is clamped down so an
-  over-large initial credit can't exhaust broker memory.
-- The broker assigns each message a monotonic **id** and **leases** it to the consumer. A message
-  leaves broker custody **only when the consumer acks that id** — `Consume{AckId: msg.id}`.
-- If a consumer disconnects with **unacked** leases, those messages are **re-enqueued at the front
-  and redelivered** to a surviving consumer — **no loss**. Redelivery can produce **duplicates**,
-  which the (idempotent) Collector absorbs downstream.
-- Steady state with all consumers acking is still **unique delivery** — each message goes to exactly
-  one consumer.
-
-Storage is still **in-memory only** (a ring buffer behind the `Store` interface); crash durability
-is the opt-in WAL backend planned for Phase 6.
-
-### Inspect the queue
+### 1. Stand up the cluster
 
 ```sh
-curl -s localhost:8080/api/v1/queue/inspect
-# {"capacity":10000,"depth":0,"produced_total":40,"delivered_total":46,"consumed_total":40,
-#  "redelivered_total":6,"dropped_total":0,"active_consumers":0,"in_flight":0}
+make kind-up          # create a single-node kind cluster
+make deploy           # docker build (5 images) → kind-load → helm-install
+make smoke-05         # prove the pipeline is flowing end-to-end
 ```
 
-Counter meanings (at-least-once, D-09): `produced_total` = accepted by Produce ·
-`delivered_total` = messages **sent** to consumers · `consumed_total` = **acks** (confirmed
-deliveries — *not* sends) · `redelivered_total` = re-enqueued after a disconnect-with-unacked ·
-`in_flight` = currently sent-but-unacked. The identity `delivered = consumed + redelivered +
-in_flight` holds at rest.
+`make deploy` builds `vantage/{mq,streamer,collector,gateway,migrate}:dev`, loads them into kind,
+and installs the Helm release `vantage`. A migration hook Job applies the schema before service
+pods roll.
 
-### Produce & consume a message
-
-The MQ speaks gRPC (`mq.v1.MQService`). The repo ships a tiny pure-Go probe so you don't need
-`grpcurl`. Its `consume` path now speaks the bidi protocol — it sends initial credit and **acks
-every message by broker id**:
+### 2. Query the API Gateway
 
 ```sh
-# In one terminal: ./bin/mq
-# In another:
-go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:50051 -n 20 -credit 20
-# mqprobe: OK — produced 20, consumed 20 via 127.0.0.1:50051
+kubectl port-forward svc/vantage-gateway 8081:8080
 ```
-
-`mqprobe` flags: `-mode` selects the scenario, `-credit` (default `20`) sets the initial bidi
-flow-control window for the consume side.
-
-| `-mode`   | Behaviour                                                            |
-|-----------|---------------------------------------------------------------------|
-| `both`    | *(default)* attach a bidi `Consume` stream first (send credit), then produce N — receive **and ack** each |
-| `produce` | produce N messages and exit, leaving them buffered in the MQ        |
-| `consume` | attach a bidi `Consume` stream, receive N messages and **ack each by id**, then exit |
-
-Running `produce` in one invocation and `consume` in a later one exercises the **late-join** path —
-the producer publishes and disconnects, and a consumer that attaches afterwards still drains (and
-acks) every buffered message. Reading **fewer** than produced leaves the rest retrievable — zero
-loss:
 
 ```sh
-go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:50051 -n 20 -mode produce            # publish, then exit
-go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:50051 -n 10 -mode consume -credit 8  # join later, read+ack 10
-go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:50051 -n 10 -mode consume -credit 8  # the other 10 are still there
+# List GPU IDs
+curl -s http://localhost:8081/api/v1/gpus | python3 -m json.tool
+
+# All telemetry for a GPU (capped, newest-first)
+curl -s http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry | python3 -m json.tool
+
+# Time-window filter (RFC3339)
+curl -s 'http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry?start_time=2024-01-01T00:00:00Z&end_time=2024-01-02T00:00:00Z'
+
+# Pagination (cursor-free offset; response includes has_next)
+curl -s 'http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=0'
+curl -s 'http://localhost:8081/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=100'
 ```
 
-## Phase 2 — Storage Foundation
+Swagger UI (live interactive docs): `http://localhost:8081/swagger/`
 
-### Bring up local Postgres
-
-`docker-compose.yml` provides a `postgres:17-alpine` instance for local development and smoke
-testing. The credentials (`vantage`/`vantage` on `localhost:5432/vantage`) are **local dev
-defaults only** — they exist in the repo for developer convenience and are never used in
-production. Production DSNs are always supplied via `VANTAGE_DB_DSN`.
+### 3. Inspect the MQ
 
 ```sh
-make dev-up    # start Postgres (waits for healthcheck)
-make dev-down  # stop Postgres
+kubectl port-forward svc/vantage-mq 8082:8080
+curl -s localhost:8082/api/v1/queue/inspect
 ```
 
-### Apply the schema
-
-The shared `pkg/db` library ships the versioned migration embedded in the binary. `cmd/migrate`
-is a one-shot runner — it reads `VANTAGE_DB_DSN`, calls `pkg/db.Migrate`, and exits:
+### 4. Horizontal scaling
 
 ```sh
-export VANTAGE_DB_DSN=postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
-go run ./cmd/migrate
-# migrate: schema up to date
-```
-
-`pkg/db.Migrate` is idempotent (`migrate.ErrNoChange` is treated as success), so it is safe to
-call on every service startup or restart.
-
-### Storage environment variables
-
-| Env var | Required | Default | Meaning |
-|---|---|---|---|
-| `VANTAGE_DB_DSN` | yes | — | Full `postgres://` connection string; **never logged** |
-| `VANTAGE_DB_MAX_CONNS` | no | 0 (pgxpool default) | Maximum pool connections |
-
-Both env vars are read by `pkg/db.FromEnv()`, imported by Collector (Phase 3) and Gateway (Phase 4).
-
-### GPU identity convention (D-04)
-
-`gpu_id` stores the GPU **UUID** (e.g. `GPU-5fd4f087-...`), not the ordinal index (`"0"`).
-The column is named `gpu_id` to match the spec's mandated composite index expression and the
-`/api/v1/gpus/{id}` API route — but the value stored is always the UUID. The GPU ordinal,
-device name, model, hostname, and pod/container metadata are stored as descriptive columns,
-not as identity.
-
-### Verify the storage foundation
-
-```sh
-make smoke-02
-```
-
-`make smoke-02` runs `scripts/smoke/phase02-postgres.sh`, which:
-
-1. Starts the dev stack (`make dev-up`) if Postgres is not already running
-2. Applies the schema via `go run ./cmd/migrate`
-3. Asserts that `gpu_metrics` exists with the expected columns
-4. Asserts that both indexes exist: `idx_gpu_metrics_gpu_id_ts` (composite) and
-   `uq_gpu_metrics_natural_key` (unique)
-5. Seeds 100,000 rows (`10 GPUs × 10 metrics × 1,000 timestamps`) and runs `ANALYZE`
-6. Runs `EXPLAIN` on a selective single-GPU 1-hour range query and asserts `Index Scan`
-   (not `Seq Scan`) — proving the planner uses the composite index at representative scale
-
-## Phase 3 — Pipeline (Streamer + Collector)
-
-Phase 3 wires the full data path: a DCGM CSV is read by the Streamer, published to the MQ,
-consumed and batch-inserted by the Collector, and queryable in PostgreSQL. Services are
-independent microservices; only `pkg/` is shared.
-
-```
-CSV → Streamer → MQ(gRPC Produce) → MQ(gRPC Consume bidi) → Collector → PostgreSQL
-```
-
-### Prerequisites
-
-- A DCGM metrics CSV file in the repo root (`dcgm_metrics_*.csv`). Copy or symlink one
-  before running the Streamer or `make smoke-03`. The CSV is gitignored — never committed.
-- `make dev-up` to start the local Postgres dev stack.
-
-### Run the pipeline locally
-
-Start each service in its own terminal (or background):
-
-```sh
-# Terminal 1 — MQ broker (gRPC :50051, HTTP :8080)
-./bin/mq
-# or: go run ./cmd/mq
-
-# Terminal 2 — Collector (auto-migrates schema on startup)
-export VANTAGE_DB_DSN=postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
-export COLLECTOR_MQ_ADDR=:50051
-./bin/collector
-# or: go run ./cmd/collector
-
-# Terminal 3 — Streamer (loops the CSV forever; Ctrl-C to stop)
-export STREAMER_CSV_PATH=./dcgm_metrics_<date>.csv
-export STREAMER_MQ_ADDR=:50051
-./bin/streamer
-# or: STREAMER_CSV_PATH=... go run ./cmd/streamer
-```
-
-All three service binaries are built with `make build`.
-
-### Environment variables
-
-**Streamer**
-
-| Env var | Default | Meaning |
-|---|---|---|
-| `STREAMER_MQ_ADDR` | `:50051` | gRPC address of the MQ server |
-| `STREAMER_CSV_PATH` | — | Path to the DCGM metrics CSV (required) |
-| `STREAMER_LOOP_DELAY_MS` | `1` | Inter-row sleep in ms; 0 disables |
-
-**Collector**
-
-| Env var | Default | Meaning |
-|---|---|---|
-| `VANTAGE_DB_DSN` | — | PostgreSQL connection string (required) |
-| `COLLECTOR_MQ_ADDR` | `:50051` | gRPC address of the MQ server |
-| `COLLECTOR_BATCH_SIZE` | `50` | Rows to accumulate before a size-flush |
-| `COLLECTOR_FLUSH_MS` | `500` | Ticker interval in ms for time-flush |
-| `COLLECTOR_CREDIT` | `100` | Initial in-flight window (must be ≥ BATCH_SIZE) |
-
-### GPU identity convention (D-04)
-
-`gpu_id` in the database stores the GPU **UUID** (e.g. `GPU-5fd4f087-bfa9-2f3d-...`),
-not the ordinal index (`"0"`, `"1"`, …) from the CSV's `gpu_id` column. `models.FromProto`
-maps the proto `uuid` field to `db.gpu_id`. The ordinal is kept in the proto for debugging
-but is never written to Postgres.
-
-### Inspect rows in PostgreSQL
-
-```sh
-# Most-recent 10 readings via compose (no host psql required)
-docker compose exec -T postgres psql -U vantage -d vantage \
-  -c 'SELECT gpu_id, metric_name, timestamp, value FROM gpu_metrics ORDER BY timestamp DESC LIMIT 10;'
-
-# Row count and GPU diversity
-docker compose exec -T postgres psql -U vantage -d vantage \
-  -c 'SELECT count(*), count(distinct gpu_id) FROM gpu_metrics;'
-```
-
-### Exactly-once delivery (the key property)
-
-With multiple Collector instances, each telemetry reading is persisted **exactly once**
-even under at-least-once MQ redelivery. The Collector's `ON CONFLICT (gpu_id, metric_name,
-timestamp) DO NOTHING` SQL clause is the enforcement point. The E2E test (QA-03) proves this
-end-to-end under `test/e2e/pipeline_test.go` (run via `make e2e` — requires Docker/Rancher Desktop).
-
-> **Concurrent Streamers:** Under ≥2 simultaneous Streamer instances, nanosecond-level
-> timestamp collisions can cause `ON CONFLICT DO NOTHING` to silently drop a duplicate row.
-> This is accepted by design — see [`ADR-002`](docs/adr/ADR-002-natural-key-microsecond-collision.md).
-
-### Verify Phase 3
-
-```sh
-make smoke-03
-```
-
-`make smoke-03` runs `scripts/smoke/phase03-pipeline.sh`, which:
-
-1. Starts the dev Postgres stack (`make dev-up`) if not already running
-2. Finds `dcgm_metrics_*.csv` in the repo root (fails cleanly if absent)
-3. Builds and starts `bin/mq`, `bin/collector`, `bin/streamer` in the background
-4. Waits 5 seconds for telemetry to flow
-5. Asserts `count(*) FROM gpu_metrics > 0` (rows landed)
-6. Asserts `count(*) == count(DISTINCT gpu_id, metric_name, timestamp)` (zero duplicates)
-7. Asserts no ordinal values (`0`, `1`, …) in `gpu_id` (UUID mapping verified, D-04)
-8. Prints row count, distinct row count, and distinct GPU count
-9. Leaves Postgres running for manual inspection; kills only the three pipeline processes
-
-## Phase 4 — API Gateway
-
-Phase 4 exposes the telemetry data via a documented REST API served by the gateway binary.
-The OpenAPI spec is auto-generated from `swag` annotations — never hand-written.
-
-```
-PostgreSQL → API Gateway → client (HTTP/JSON)
-```
-
-### Run the gateway
-
-```sh
-# Prerequisites: Postgres must be running (make dev-up) and schema applied.
-export VANTAGE_DB_DSN=postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
-make build              # builds all services including the gateway
-./bin/gateway           # or: go run ./cmd/gateway
-# gateway: listening on :8080
-```
-
-Configuration (all optional):
-
-| Env var | Default | Meaning |
-|---|---|---|
-| `GATEWAY_ADDR` | `:8080` | TCP listen address |
-| `VANTAGE_DB_DSN` | — | PostgreSQL connection string (required) |
-| `VANTAGE_DB_MAX_CONNS` | 0 (pgxpool default) | Max pool connections |
-| `VANTAGE_GATEWAY_MAX_ROWS` | `1000` | Row cap on telemetry results (non-pagination safety ceiling) |
-
-### API endpoints
-
-**List GPU IDs** — returns sorted distinct GPU UUIDs:
-
-```sh
-curl -s http://localhost:8080/api/v1/gpus | python3 -m json.tool
-# ["GPU-3b22d8fd-...", "GPU-5fd4f087-...", ...]
-```
-
-**Get telemetry for a GPU** — returns metric rows ordered newest-first:
-
-```sh
-# All rows (capped at VANTAGE_GATEWAY_MAX_ROWS):
-curl -s http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry | python3 -m json.tool
-
-# Time-window filter (RFC3339; both params optional, partial bounds allowed):
-curl -s 'http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry?start_time=2024-01-01T00:00:00Z&end_time=2024-01-02T00:00:00Z'
-```
-
-Error codes: `404` for an unknown GPU UUID; `400` for a malformed RFC3339 time param;
-`200 []` for a known GPU with no rows in the requested window.
-
-### Swagger UI (live API docs)
-
-The OpenAPI spec is auto-generated by `make swagger` from the `swag` code annotations in
-`internal/gateway/handler.go`. Open the browser UI at:
-
-```
-http://localhost:8080/swagger/
-```
-
-Or fetch the raw JSON spec:
-
-```sh
-curl -s http://localhost:8080/swagger/doc.json | python3 -m json.tool
-```
-
-To regenerate after changing annotations:
-
-```sh
-make swagger    # runs: swag init -g cmd/gateway/main.go -o pkg/docs
-```
-
-The generated `pkg/docs/` directory is committed — the gateway binary embeds the spec
-via `_ "github.com/ajitg/vantage/pkg/docs"` (side-effect import, registers on `init()`).
-
-### Verify Phase 4
-
-```sh
-make smoke-04
-```
-
-`make smoke-04` runs `scripts/smoke/phase04-gateway.sh`, which:
-
-1. Starts the dev Postgres stack (`make dev-up`) if not already running
-2. Builds `bin/gateway` and starts it in the background
-3. Waits up to 15s for the gateway to become ready on `:8080`
-4. Asserts `GET /api/v1/gpus` → 200 + JSON array
-5. Asserts `GET /api/v1/gpus/<first-gpu>/telemetry` → 200 + JSON array
-6. Asserts `GET /api/v1/gpus/GPU-does-not-exist/telemetry` → 404
-7. Asserts `GET /swagger/doc.json` → 200 + valid JSON spec with ≥ 2 paths
-8. Prints gateway URL, GPU count, and Swagger UI URL
-9. Leaves Postgres running; kills only the gateway process on exit
-
-## Phase 5 — DevOps (Docker + Kubernetes/Helm)
-
-Every service ships as a **multi-stage distroless image** and deploys to a local **kind** cluster
-via a **Helm umbrella chart** — four self-contained sub-charts plus a Bitnami PostgreSQL dependency,
-with schema migrations run by a **post-install,post-upgrade** hook Job after regular resources
-(including the PostgreSQL Service) are created.
-
-### Prerequisites
-
-- **Docker via Rancher Desktop** — the Makefile exports `DOCKER_HOST=unix://~/.rd/docker.sock`
-  for every target (no manual env needed).
-- **kind** at `~/go/bin/kind` (`make tools` installs it; the Makefile prepends `~/go/bin` to PATH).
-- **Helm v3/v4** on PATH.
-
-### Deploy workflow
-
-```sh
-make kind-up     # one-time: create the kind cluster
-make deploy      # docker (5 images) -> kind-load -> helm-install
-make smoke-05    # prove the deployed pipeline end-to-end
-make kind-down   # delete the cluster
-```
-
-`make deploy` builds all five images (`vantage/{mq,streamer,collector,gateway,migrate}:dev`),
-loads them into kind, pulls the Bitnami PostgreSQL chart (`make dependency-update`, automatic),
-and installs the umbrella release. The migration hook Job (annotated
-`helm.sh/hook: post-install,post-upgrade`) waits for Postgres, applies the schema, then service
-pods roll. The post-install ordering ensures the PostgreSQL Service exists before the hook's
-`wait-for-postgres` init container polls it — pre-install hooks run before any regular release
-resource exists, causing a circular wait (Phase 5 operational learning; fixed in Plan 05-05).
-
-> **Caveat (images):** charts use `imagePullPolicy: IfNotPresent` with the fixed `:dev` tag —
-> a forgotten `make kind-load` after rebuilding images surfaces as `ImagePullBackOff` or stale
-> code running. Re-run `make deploy` (or `make docker kind-load`) after code changes.
-
-**Independent deploys (OPS-03):** every sub-chart exposes `enabled` and `image.tag`:
-
-```sh
-helm upgrade --reuse-values --set mq.image.tag=dev vantage deployments   # rolls ONLY mq
-helm upgrade --reuse-values --set streamer.enabled=false vantage deployments
-```
-
-The MQ deploys as a **single replica with `strategy: Recreate`** — hardcoded in the sub-chart
-template (never a value) because the in-memory broker cannot be replicated (ADR-001).
-
-### Smoke (`make smoke-05`)
-
-Assumes `make kind-up deploy` already ran; fails fast with a clear message otherwise. Asserts:
-migration Job completed, all four Deployments Available, port-forwarded gateway (local **8081**)
-returns real rows from `/api/v1/gpus` and `/telemetry`, and a `--set mq.image.tag` upgrade rolls
-only the MQ Deployment.
-
-### Soak (`make soak`)
-
-Sustained-load endurance run against the deployed cluster:
-
-```sh
-make soak                              # defaults: 60s, 3 streamer replicas
-SOAK_DURATION=300 SOAK_STREAMERS=10 make soak   # the 10-concurrent-streamer proof
-```
-
-Scales the streamer Deployment, then asserts rows keep growing, MQ inspect counters reconcile
-(`produced_total >= consumed_total`), and queue depth stays bounded below capacity. Restores
-1 replica on exit.
-
-### Live-infrastructure test harness (`make test-harness`)
-
-A programmatic E2E suite (distinct from `make test` and the smoke scripts) that owns the **full
-five-image docker-compose stack** (`docker-compose.full.yml`) via testcontainers-go:
-
-```sh
-make test-harness          # hermetic: up -> assert pipeline correctness -> down
-KEEP=1 make test-harness   # leave the stack running for debugging
-```
-
-The suite (`test/harness/`, behind a `//go:build e2e` tag — excluded from `make test` and the
-coverage gate) waits for the gateway, then proves rows flowed CSV → streamer → MQ → collector →
-Postgres → gateway, and that counts keep growing. Point the same suite at a kind deployment with
-`HARNESS_GATEWAY_BASE=http://localhost:8081` (skips compose stack ownership).
-
-## Phase 6 — Production Hardening
-
-Phase 6 adds Kubernetes-native observability (health endpoints, probes, resource limits, HPA),
-paginated telemetry reads, CI enforcement, and structured logging. No changes to MQ delivery
-semantics, the single-replica MQ invariant, or the ≥90% coverage gate.
-
-### Health endpoints and Kubernetes probes
-
-Every service exposes `/healthz` (liveness — process alive) and `/readyz` (readiness — service
-ready to handle traffic):
-
-| Service | Health port | Readiness semantics |
-|---------|------------|---------------------|
-| MQ | `:8080` (existing HTTP ServeMux) | gRPC server not shutting down |
-| Gateway | `:8080` (chi router) | DB pool `Ping` succeeds (2s timeout) |
-| Streamer | `:9000` (`STREAMER_HEALTH_ADDR`, default `:9000`) | MQ stream dialed and entered |
-| Collector | `:9001` (`COLLECTOR_HEALTH_ADDR`, default `:9001`) | MQ stream open (first `Recv` succeeded) |
-
-The Helm sub-charts wire `livenessProbe` and `readinessProbe` against these endpoints with
-values-configurable timing. Defaults (`initialDelaySeconds: 30`, `failureThreshold: 6`,
-`periodSeconds: 10`) are tuned for kind's slower startup; the gateway uses
-`initialDelaySeconds: 60` to absorb the post-install migrate Job.
-
-```sh
-# Check health of a running service locally:
-curl -s http://localhost:8080/healthz    # MQ or gateway
-curl -s http://localhost:9000/healthz    # streamer
-curl -s http://localhost:9001/readyz     # collector
-```
-
-Health endpoints are operational only — they are not part of the documented OpenAPI spec
-and carry no version, config, or DSN information in the response body.
-
-### Resource requests and limits
-
-Each sub-chart sets per-service defaults, overridable via `helm upgrade --set`:
-
-| Service | cpu request / limit | memory request / limit |
-|---------|--------------------|-----------------------|
-| MQ | 100m / 500m | 64Mi / 256Mi |
-| Gateway | 100m / 200m | 32Mi / 128Mi |
-| Streamer | 50m / 100m | 16Mi / 64Mi |
-| Collector | 50m / 100m | 16Mi / 64Mi |
-
-MQ memory sizing covers the ring buffer (10 000 × ~200 B ≈ 2 MB) plus credit window and gRPC
-overhead with 5× headroom. All services set `resources.requests.cpu` — a prerequisite for HPA.
-
-### Scaling and HPA
-
-**Gateway (optional HPA):**
-
-The gateway sub-chart ships an `autoscaling/v2` HPA, disabled by default:
-
-```sh
-# Check the toggle (off by default):
-grep -A4 autoscaling deployments/values.yaml
-
-# Enable for a test:
-helm upgrade vantage deployments --reuse-values \
-  --set gateway.autoscaling.enabled=true \
-  --set gateway.autoscaling.minReplicas=1 \
-  --set gateway.autoscaling.maxReplicas=3 \
-  --set gateway.autoscaling.targetCPUUtilizationPercentage=80
-```
-
-> **Kind caveat:** HPA requires `metrics-server` in the cluster. kind does not include it by
-> default. Install it before enabling HPA:
-> ```sh
-> kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-> ```
-> Kind also requires patching the metrics-server args with `--kubelet-insecure-tls`. Without
-> metrics-server, `kubectl describe hpa` shows `TARGETS: <unknown>/80%` and no scaling occurs.
-
-**MQ (fixed single replica):** The MQ is hardcoded to `replicas: 1` with `strategy: Recreate` in
-the sub-chart template — this is an ADR-001 invariant, never a values-overridable setting. The
-in-memory broker cannot be replicated.
-
-**Streamer and Collector (manual scale):**
-
-Both services are stateless and support horizontal scaling. The Collector uses `ON CONFLICT DO NOTHING`
-for idempotent exactly-once persistence regardless of replica count. Proven to 10 concurrent Streamer
-instances in Phase 5 soak tests.
-
-```sh
-# Scale via kubectl:
+# Scale Streamers and Collectors independently (stateless services)
 kubectl scale deployment/vantage-streamer --replicas=3
 kubectl scale deployment/vantage-collector --replicas=2
 
-# Scale via Helm:
-helm upgrade vantage deployments --reuse-values --set streamer.replicaCount=3
-helm upgrade vantage deployments --reuse-values --set collector.replicaCount=2
+# The MQ stays at 1 replica — it is a single-replica in-memory broker by design (ADR-001)
 ```
 
-### Pagination
-
-`GET /api/v1/gpus/{id}/telemetry` supports cursor-free offset pagination:
-
-| Query param | Default | Constraint | Meaning |
-|-------------|---------|-----------|---------|
-| `limit` | `VANTAGE_GATEWAY_MAX_ROWS` (1000) | 1 ≤ limit ≤ MAX\_ROWS | Max rows to return |
-| `offset` | `0` | ≥ 0 | Row offset for pagination |
-
-Response envelope (replaces the former `X-Truncated`/`X-Row-Limit` headers):
-
-```json
-{
-  "data": [ { "gpu_id": "GPU-...", "metric_name": "...", "timestamp": "...", "value": 0.0, ... } ],
-  "pagination": {
-    "limit": 100,
-    "offset": 0,
-    "has_next": true
-  }
-}
-```
-
-`has_next: true` means at least one more row exists at `offset + limit`. Ordering is newest-first
-(composite index on `(gpu_id, timestamp DESC)`). Time-window parameters (`start_time`, `end_time`)
-still work alongside pagination — the offset applies within the filtered result set.
+### 5. Tear down
 
 ```sh
-# First page (100 rows):
-curl -s 'http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=0'
-
-# Second page:
-curl -s 'http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=100'
-
-# Time-window + pagination:
-curl -s 'http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry?start_time=2025-01-01T00:00:00Z&limit=50&offset=0'
+make kind-down
 ```
 
-Error codes: `400` for invalid `limit` or `offset` (non-integer, `limit < 1`, `offset < 0`, or
-`limit > VANTAGE_GATEWAY_MAX_ROWS`).
+### Local (no Kubernetes)
 
-### Structured logging
+See [docs/development.readme.md](docs/development.readme.md) for `make dev-up`, per-service
+startup commands, and the smoke suite without kind.
 
-All four services log through `log/slog` (stdlib, no external dependency) with a JSON handler.
+## Submission Checklist
 
-| Env var | Default | Meaning |
-|---------|---------|---------|
-| `LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| Graded item | Where to find it |
+|---|---|
+| Build gate (`make build`) | `Makefile` |
+| Test gate (`go test -race`, `make test`) | `Makefile` target `test` |
+| ≥ 90% coverage gate (`make coverage`) | `Makefile` target `coverage` |
+| Lint gate (`make lint`) | `Makefile` target `lint` |
+| kind E2E deploy (`make deploy`, `make smoke-05`) | `Makefile`; `scripts/smoke/phase05-kind.sh` |
+| Soak (10 concurrent Streamers; `make soak`) | `Makefile` target `soak`; `scripts/soak.sh` |
+| Live E2E harness (`make test-harness`) | `Makefile` target `test-harness`; `test/harness/` |
+| Auto-generated OpenAPI (`make swagger`, `/swagger/`) | `Makefile`; `pkg/docs/`; gateway annotations |
+| ADR design records | [`docs/adr/README.md`](docs/adr/README.md) |
+| AI usage disclosure | [`docs/AI_USAGE.md`](docs/AI_USAGE.md) |
+| AI prompt log | [`docs/AI_PROMPTS.md`](docs/AI_PROMPTS.md) |
+| Future enhancements (WAL + multi-schema) | [`docs/FUTURE.md`](docs/FUTURE.md) |
+| CI workflow | `.github/workflows/ci.yml` |
 
-Each log line carries a `service` attribute identifying the source (`mq`, `gateway`, `streamer`,
-`collector`). DSN and secrets are never logged.
+## Documentation
 
-### CI
-
-GitHub Actions CI runs on every push and pull request:
-
-```yaml
-# .github/workflows/ci.yml — triggers: push (all branches) + pull_request
-make build      # compile all four service binaries
-make test       # go test -race (unit tests only)
-make coverage   # go test -race -tags=integration, ≥90% gate (uses testcontainers)
-make lint       # golangci-lint
-```
-
-The Makefile is the single source of truth for gate definitions — the workflow only calls make targets.
-
-## Testing
-
-### Automated (unit + concurrency + coverage)
-
-```sh
-make test       # go test -race across the module
-make coverage   # enforces ≥90% line coverage on internal/ and pkg/ packages
-make lint       # golangci-lint (falls back to go vet)
-```
-
-The MQ's correctness under concurrency is proven by race-detector tests in `internal/server` and
-`internal/queue` (run at `-count=50`): broker-side at-least-once with **no loss** on consumer
-disconnect, **no over-pull** beyond credit `C`, **redelivery** of unacked leases to survivors,
-**unique** steady-state delivery, **safe** ack handling (unknown/double acks are no-ops), and no
-goroutine leaks.
-
-### Manual smoke suite (watch each phase work end-to-end)
-
-A runnable, dependency-light suite you can execute by hand to verify each phase's deliverables.
-Each phase adds `scripts/smoke/phaseNN-*.sh`.
-
-```sh
-make smoke         # run every phase's smoke check shipped so far
-make smoke-01      # run just Phase 1 (MQ)
-```
-
-**Phase 1 (`make smoke-01`)** builds the MQ on dedicated ports, starts it, then via the bidi
-`mqprobe` (1) produces/consumes 20 messages over a real bidi `Consume` stream with credit + per-id
-acks, and (2) runs a **late-join no-loss** scenario — produce 20, consume only 10, then drain the
-remaining 10 in a third process — proving a consumer that reads fewer than produced loses nothing
-across the producer's disconnect, and (3) runs a **credit-boundary** scenario — a consumer whose
-first credit is `0` must not deadlock: the broker substitutes its default window and still drains
-all 20. It cross-checks the at-least-once `GET /api/v1/queue/inspect`
-counters (`delivered_total`, `consumed_total` = acks, `redelivered_total`) throughout — the
-redelivered count goes positive exactly when the partial consumer disconnects holding unacked
-leases, proving redelivery over the wire.
-
-## Phase status & how to verify
-
-| Phase | Delivers | Verify with |
-|---|---|---|
-| **1 — Foundation** ✅ | proto contract + custom in-memory MQ (gRPC + HTTP inspect) | `make test`, `make coverage`, `make smoke-01` |
-| **2 — Storage** ✅ | Postgres time-series schema + `pgxpool` in `pkg/db` | `make dev-up`, `go run ./cmd/migrate`, `make smoke-02` |
-| **3 — Pipeline** ✅ | Streamer + Collector (CSV → MQ → Postgres); exactly-once E2E test | `make build`, `make test`, `make coverage`, `make smoke-03` |
-| **4 — API Gateway** ✅ | REST read API + auto-generated OpenAPI | `make build`, `make test`, `make coverage`, `make smoke-04` |
-| **5 — DevOps** ✅ | 5 distroless images + Helm umbrella on kind; e2e harness | `make deploy`, `make smoke-05`, `make soak`, `make test-harness` |
-| **6 — Production Hardening** ✅ | Health endpoints + probes + resources + gateway HPA; pagination; slog JSON; CI workflow | `make build`, `make test`, `make coverage`, `make lint`, `curl /healthz` |
+| Document | Contents |
+|---|---|
+| [docs/mq.readme.md](docs/mq.readme.md) | MQ config, delivery semantics, inspect counters, mqprobe |
+| [docs/streamer.readme.md](docs/streamer.readme.md) | Streamer config, CSV prereqs, restamping |
+| [docs/collector.readme.md](docs/collector.readme.md) | Collector config, exactly-once semantics |
+| [docs/gateway.readme.md](docs/gateway.readme.md) | Gateway endpoints, pagination, Swagger |
+| [docs/development.readme.md](docs/development.readme.md) | Repo layout, storage, smoke suite, testing, DevOps, CI |
+| [docs/FUTURE.md](docs/FUTURE.md) | Designed-but-deferred: opt-in WAL + multi-schema messages |
+| [docs/adr/README.md](docs/adr/README.md) | All ten architectural decision records |
+| [docs/AI_USAGE.md](docs/AI_USAGE.md) | Scope, model, oversight, known limitations |
+| [docs/AI_PROMPTS.md](docs/AI_PROMPTS.md) | Verbatim prompt log across all phases |
+| [instructions.md](instructions.md) | Authoritative project spec |
+| [CLAUDE.md](CLAUDE.md) | Conventions and hard constraints |
 
 ---
 
-Built phase-by-phase with the GSD framework. See [`CLAUDE.md`](CLAUDE.md) for conventions and the
-hard constraints (custom MQ from scratch, ≥90% coverage, auto-generated OpenAPI, time-series schema).
-
----
-
-## Design records
-
-See the full [ADR index](docs/adr/README.md) for all ten decision records.
-
-- [`ADR-001`](docs/adr/ADR-001-bidi-at-least-once-delivery.md) — Broker-side at-least-once delivery (bidi Consume stream with credit + ack)
-- [`ADR-002`](docs/adr/ADR-002-natural-key-microsecond-collision.md) — Natural-key microsecond collision under concurrent Streamers (accepted, by design)
-
----
-
-## AI-assisted development
-
-This project was built with Claude (Anthropic) as primary implementation partner under the GSD
-framework. All code was human-reviewed before commit.
-
-- [`docs/AI_USAGE.md`](docs/AI_USAGE.md) — scope, model, oversight practices, known limitations
-- [`docs/AI_PROMPTS.md`](docs/AI_PROMPTS.md) — verbatim prompt log across all phases, with candid
-  notes on where prompts fell short and what manual intervention was required
+Built phase-by-phase with the GSD framework. This is the final v1 consolidation — Phases 1–6
+complete on branch `adr-backfill`; Phase 7 (WAL durability) deferred as an optional post-v1
+enhancement (see [`docs/FUTURE.md`](docs/FUTURE.md)).
