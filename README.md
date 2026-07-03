@@ -699,6 +699,8 @@ hard constraints (custom MQ from scratch, ≥90% coverage, auto-generated OpenAP
 
 ## Design records
 
+See the full [ADR index](docs/adr/README.md) for all ten decision records.
+
 - [`ADR-001`](docs/adr/ADR-001-bidi-at-least-once-delivery.md) — Broker-side at-least-once delivery (bidi Consume stream with credit + ack)
 - [`ADR-002`](docs/adr/ADR-002-natural-key-microsecond-collision.md) — Natural-key microsecond collision under concurrent Streamers (accepted, by design)
 
