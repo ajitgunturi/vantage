@@ -335,6 +335,30 @@ func TestStream_RetryOnProduceError(t *testing.T) {
 		"both CSV rows must eventually be published successfully")
 }
 
+// --- Runner tests ---------------------------------------------------------
+
+// TestRunner_NotReadyBeforeStart asserts that a freshly-created Runner reports
+// IsReady() == false before Run has been called (OBS-01).
+func TestRunner_NotReadyBeforeStart(t *testing.T) {
+	runner := NewRunner(Config{MQAddr: ":50051", CSVPath: "/some/path.csv"})
+	require.False(t, runner.IsReady(), "Runner must not be ready before Run is called")
+}
+
+// TestConfig_HealthAddrDefault asserts that FromEnv defaults HealthAddr to ":9000"
+// when STREAMER_HEALTH_ADDR is not set.
+func TestConfig_HealthAddrDefault(t *testing.T) {
+	t.Setenv("STREAMER_HEALTH_ADDR", "")
+	cfg := FromEnv()
+	require.Equal(t, ":9000", cfg.HealthAddr, "HealthAddr must default to :9000")
+}
+
+// TestConfig_HealthAddrOverride asserts that STREAMER_HEALTH_ADDR overrides the default.
+func TestConfig_HealthAddrOverride(t *testing.T) {
+	t.Setenv("STREAMER_HEALTH_ADDR", ":9001")
+	cfg := FromEnv()
+	require.Equal(t, ":9001", cfg.HealthAddr, "STREAMER_HEALTH_ADDR must override default")
+}
+
 // TestStream_Concurrent10 launches 10 goroutines each calling Stream(once=true)
 // over the same temp CSV against a shared fakeProducer. Under -race it asserts
 // total published == 10 × validRowCount and no data race (STREAM-05).
