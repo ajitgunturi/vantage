@@ -25,6 +25,9 @@ type Config struct {
 	// Env: STREAMER_LOOP_DELAY_MS (default 1). Zero disables the delay.
 	// Negative values and non-numeric values are treated as the default.
 	LoopDelayMS int
+	// HealthAddr is the TCP address for the HTTP health listener (/healthz, /readyz).
+	// Env: STREAMER_HEALTH_ADDR (default ":9000").
+	HealthAddr string
 }
 
 // FromEnv constructs a Config from environment variables, applying defaults for
@@ -35,10 +38,12 @@ type Config struct {
 //	STREAMER_MQ_ADDR       (default ":50051")
 //	STREAMER_CSV_PATH      (no default; validated in Run)
 //	STREAMER_LOOP_DELAY_MS (default 1; invalid/negative silently keeps default)
+//	STREAMER_HEALTH_ADDR   (default ":9000")
 func FromEnv() Config {
 	cfg := Config{
 		MQAddr:      ":50051",
 		LoopDelayMS: 1,
+		HealthAddr:  ":9000",
 	}
 	if v := os.Getenv("STREAMER_MQ_ADDR"); v != "" {
 		cfg.MQAddr = v
@@ -50,6 +55,9 @@ func FromEnv() Config {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.LoopDelayMS = n
 		}
+	}
+	if v := os.Getenv("STREAMER_HEALTH_ADDR"); v != "" {
+		cfg.HealthAddr = v
 	}
 	return cfg
 }
