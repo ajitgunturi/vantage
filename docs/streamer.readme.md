@@ -14,9 +14,11 @@ instances run concurrently (soak-proven in Phase 5).
 
 ## CSV in Kubernetes (kind)
 
-The streamer image bakes the CSV into `/data/dcgm_metrics.csv` at `make docker` time
-(`build/streamer.Dockerfile`): the real `dcgm_metrics_*.csv` when present in the repo root,
-else the committed 12-row fixture (`build/fixture/dcgm_metrics.csv`). The image is built
+The streamer image bakes a CSV into `/data/dcgm_metrics.csv` **only** via
+`make deploy CSV=/path/to/your.csv` (`build/streamer.Dockerfile`, `DEPLOY_CSV` build arg) —
+there is no fallback; deploy prompts for the path on a TTY and fails loudly when scripted.
+Plain `make docker` builds a CSV-less image: dev/test flows mount the single test fixture
+`testdata/fixture.csv` at runtime (see `docker-compose.full.yml`). The image is built
 locally and loaded into kind — never pushed to a registry. A ConfigMap cannot carry the real
 file (1.1MB > the 1MiB ConfigMap limit); set `streamer.useFixtureConfigMap=true` in Helm
 values to force the tiny deterministic 3-GPU fixture instead of the image-baked data.

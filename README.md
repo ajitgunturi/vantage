@@ -51,7 +51,7 @@ CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume bidi stream: msgs ↓ 
 | `make helm-install` | Install/upgrade the umbrella Helm chart |
 | `make kind-down` | Delete the kind cluster |
 | `make kind-load` | Load all five `vantage/*:dev` images into kind |
-| `make deploy` | Full deploy: docker build → kind-load → helm-install |
+| `make deploy CSV=<path>` | Full deploy: docker build → kind-load → helm-install (telemetry CSV required — prompts on a TTY) |
 | `make dependency-update` | Pull Helm chart dependencies (Bitnami PostgreSQL OCI) |
 | `make soak` | Sustained pipeline soak (`SOAK_DURATION=60`, `SOAK_STREAMERS=3`) |
 | `make test-harness` | Live-infrastructure E2E harness (requires Docker) |
@@ -63,14 +63,28 @@ Full kind cluster walkthrough — everything needed to evaluate the running syst
 ### 1. Stand up the cluster
 
 ```sh
-make kind-up          # create a single-node kind cluster
-make deploy           # docker build (5 images) → kind-load → helm-install
-make smoke-05         # prove the pipeline is flowing end-to-end
+make kind-up                        # create a single-node kind cluster
+make deploy CSV=/path/to/your.csv   # docker build (5 images) → kind-load → helm-install
+make smoke-05                       # prove the pipeline is flowing end-to-end
 ```
 
 `make deploy` builds `vantage/{mq,streamer,collector,gateway,migrate}:dev`, loads them into kind,
 and installs the Helm release `vantage`. A migration hook Job applies the schema before service
 pods roll.
+
+### Bring your own CSV
+
+The pipeline streams whatever DCGM telemetry you give it — `make deploy CSV=/path/to/your.csv`
+bakes exactly that file into the streamer image at `/data/dcgm_metrics.csv`. Any filename works,
+and the path may live anywhere on disk (it is staged into the Docker build context automatically).
+
+- **No `CSV=` on an interactive terminal?** `make deploy` prompts for the path before building.
+- **Scripted / CI / piped stdin?** `make deploy` fails loudly with usage — the streamer image never
+  bakes demo data implicitly; choosing the telemetry is intentional by design.
+- The file must exist and be readable, or deploy aborts with a clear error before any build.
+
+Dev/test flows need no CSV: `make docker`, docker compose, and the e2e/smoke suites build a
+CSV-less image and mount the single test fixture `testdata/fixture.csv` at runtime.
 
 ### 2. Query the API Gateway
 
