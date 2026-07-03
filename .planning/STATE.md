@@ -26,9 +26,9 @@ progress:
 ## Current Position
 
 - **Milestone:** v1 (MVP)
-- **Phase:** 06 (production-hardening-assignment-alignment) — EXECUTING
+- **Phase:** 06 (production-hardening-assignment-alignment) — COMPLETE
 - **Plan:** 8 of 8
-- **Status:** Phase 6 complete — verified (5/5 SC); ready to ship PR then plan Phase 7 (WAL)
+- **Status:** Phase 6 complete — verified (5/5 SC); Phase 7 (WAL) DEFERRED (optional post-v1; docs/FUTURE.md + ADR-009). Next: open PR for `adr-backfill` → main (squash-merge per workflow) — the v1 submission.
 - **Progress:** [██████████] 100%
 
 ```
@@ -59,8 +59,8 @@ progress:
 
 ### Active TODOs
 
-- Plan Phase 6 (`/gsd-plan-phase 6`) — Production Hardening + Assignment Alignment: DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07 (source: 06-REVIEW.md).
-- Phase 7 (after Phase 6) — WAL-backed `Store`: config flag, group-commit fsync, replay-on-restart, crash-recovery test (DUR-01, DUR-02, QA-05).
+- [x] Plan Phase 6 — Production Hardening + Assignment Alignment (complete 2026-07-03; 8/8 plans, 5/5 SC verified).
+- Phase 7 (WAL-backed `Store`) — **DEFERRED** (optional post-v1 enhancement; owner directive 2026-07-03). Design frozen in ROADMAP Phase 7 + tracked in docs/FUTURE.md + ADR-009. Not pending for v1.
 
 ### Blockers
 
@@ -97,7 +97,7 @@ progress:
 **Resume file:** None
 
 - **Last action:** Phase 5 UAT completed 2026-07-02 — Test 1 (kind E2E deploy + smoke-05) and Test 2 (sustained soak: rows grew, produced≥consumed, bounded depth, streamer restored) both human-verified. 05-SECURITY.md written: 17 threats closed / 0 open. VERIFICATION.md canonicalized to passed; phase marked complete in ROADMAP/STATE; PROJECT.md evolved (10 requirements moved to Validated; only WAL remains Active).
-- **Next action:** Push branch phase-06-production-hardening + open PR to main (squash-merge per workflow); after merge: /gsd-plan-phase 7 (WAL durability)
+- **Next action:** Open PR for branch `adr-backfill` → main (squash-merge per workflow); WAL deferred to post-v1 (docs/FUTURE.md).
 - **Notes:** Machine-local `.env` must carry `DOCKER_HOST=unix:///Users/ajitg/.rd/docker.sock` (three slashes — scheme + absolute path) + `TESTCONTAINERS_RYUK_DISABLED=true`; committed `.env.example` documents this. Phase 7 (WAL) relies on: Phase 2 `uq_gpu_metrics_natural_key` + Phase 3 idempotent upsert for safe at-least-once replay.
 
 ---
