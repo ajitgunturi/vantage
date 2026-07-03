@@ -112,3 +112,15 @@ build time (fixture fallback when absent), make the ConfigMap mount opt-in
 (streamer.useFixtureConfigMap, default false). Verified live: /api/v1/gpus returns 250 IDs
 (247 real + 3 pre-existing fixture rows). This supersedes the "fixture CSV — no action"
 entry in the plan's noted-decisions list, by owner directive.
+
+## Addendum 2 — pagination.total (commit 6589930, owner-directed follow-up)
+
+Added a total record count to the telemetry pagination envelope. New
+db.TelemetryCount (COUNT(*) over the same filter predicate as Telemetry);
+PaginationMeta gains total (int64); has_next stays on the limit+1 sentinel so
+it remains consistent with the page data under live ingest. ADR-010 amended —
+this consciously accepts the COUNT round-trip the original decision avoided.
+Swagger regenerated; gateway readme + README updated; integration tests for
+TelemetryCount (no-filter / window / unknown GPU / cancelled ctx) and total
+assertions in the pagination tests. Coverage gate: 91.4% (>= 90). Verified
+live: pagination now returns {"limit":5,"offset":0,"total":904,"has_next":true}.
