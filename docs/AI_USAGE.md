@@ -42,6 +42,13 @@ inspection of:
 
 ---
 
+## Verbatim prompt log
+
+For the full prompt-by-prompt record — including where prompts fell short and what manual
+intervention was required — see [`docs/AI_PROMPTS.md`](AI_PROMPTS.md).
+
+---
+
 ## Known limitations introduced by AI assistance
 
 - AI-generated comments occasionally exceed necessary verbosity; tighten on
