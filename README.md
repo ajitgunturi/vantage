@@ -408,7 +408,8 @@ make smoke-04
 
 Every service ships as a **multi-stage distroless image** and deploys to a local **kind** cluster
 via a **Helm umbrella chart** — four self-contained sub-charts plus a Bitnami PostgreSQL dependency,
-with schema migrations run by a pre-install hook Job before any service pod starts.
+with schema migrations run by a **post-install,post-upgrade** hook Job after regular resources
+(including the PostgreSQL Service) are created.
 
 ### Prerequisites
 
@@ -428,8 +429,11 @@ make kind-down   # delete the cluster
 
 `make deploy` builds all five images (`vantage/{mq,streamer,collector,gateway,migrate}:dev`),
 loads them into kind, pulls the Bitnami PostgreSQL chart (`make dependency-update`, automatic),
-and installs the umbrella release. The migration hook Job waits for Postgres, applies the schema,
-then service pods roll.
+and installs the umbrella release. The migration hook Job (annotated
+`helm.sh/hook: post-install,post-upgrade`) waits for Postgres, applies the schema, then service
+pods roll. The post-install ordering ensures the PostgreSQL Service exists before the hook's
+`wait-for-postgres` init container polls it — pre-install hooks run before any regular release
+resource exists, causing a circular wait (Phase 5 operational learning; fixed in Plan 05-05).
 
 > **Caveat (images):** charts use `imagePullPolicy: IfNotPresent` with the fixed `:dev` tag —
 > a forgotten `make kind-load` after rebuilding images surfaces as `ImagePullBackOff` or stale
@@ -480,6 +484,164 @@ coverage gate) waits for the gateway, then proves rows flowed CSV → streamer �
 Postgres → gateway, and that counts keep growing. Point the same suite at a kind deployment with
 `HARNESS_GATEWAY_BASE=http://localhost:8081` (skips compose stack ownership).
 
+## Phase 6 — Production Hardening
+
+Phase 6 adds Kubernetes-native observability (health endpoints, probes, resource limits, HPA),
+paginated telemetry reads, CI enforcement, and structured logging. No changes to MQ delivery
+semantics, the single-replica MQ invariant, or the ≥90% coverage gate.
+
+### Health endpoints and Kubernetes probes
+
+Every service exposes `/healthz` (liveness — process alive) and `/readyz` (readiness — service
+ready to handle traffic):
+
+| Service | Health port | Readiness semantics |
+|---------|------------|---------------------|
+| MQ | `:8080` (existing HTTP ServeMux) | gRPC server not shutting down |
+| Gateway | `:8080` (chi router) | DB pool `Ping` succeeds (2s timeout) |
+| Streamer | `:9000` (`STREAMER_HEALTH_ADDR`, default `:9000`) | MQ stream dialed and entered |
+| Collector | `:9001` (`COLLECTOR_HEALTH_ADDR`, default `:9001`) | MQ stream open (first `Recv` succeeded) |
+
+The Helm sub-charts wire `livenessProbe` and `readinessProbe` against these endpoints with
+values-configurable timing. Defaults (`initialDelaySeconds: 30`, `failureThreshold: 6`,
+`periodSeconds: 10`) are tuned for kind's slower startup; the gateway uses
+`initialDelaySeconds: 60` to absorb the post-install migrate Job.
+
+```sh
+# Check health of a running service locally:
+curl -s http://localhost:8080/healthz    # MQ or gateway
+curl -s http://localhost:9000/healthz    # streamer
+curl -s http://localhost:9001/readyz     # collector
+```
+
+Health endpoints are operational only — they are not part of the documented OpenAPI spec
+and carry no version, config, or DSN information in the response body.
+
+### Resource requests and limits
+
+Each sub-chart sets per-service defaults, overridable via `helm upgrade --set`:
+
+| Service | cpu request / limit | memory request / limit |
+|---------|--------------------|-----------------------|
+| MQ | 100m / 500m | 64Mi / 256Mi |
+| Gateway | 100m / 200m | 32Mi / 128Mi |
+| Streamer | 50m / 100m | 16Mi / 64Mi |
+| Collector | 50m / 100m | 16Mi / 64Mi |
+
+MQ memory sizing covers the ring buffer (10 000 × ~200 B ≈ 2 MB) plus credit window and gRPC
+overhead with 5× headroom. All services set `resources.requests.cpu` — a prerequisite for HPA.
+
+### Scaling and HPA
+
+**Gateway (optional HPA):**
+
+The gateway sub-chart ships an `autoscaling/v2` HPA, disabled by default:
+
+```sh
+# Check the toggle (off by default):
+grep -A4 autoscaling deployments/values.yaml
+
+# Enable for a test:
+helm upgrade vantage deployments --reuse-values \
+  --set gateway.autoscaling.enabled=true \
+  --set gateway.autoscaling.minReplicas=1 \
+  --set gateway.autoscaling.maxReplicas=3 \
+  --set gateway.autoscaling.targetCPUUtilizationPercentage=80
+```
+
+> **Kind caveat:** HPA requires `metrics-server` in the cluster. kind does not include it by
+> default. Install it before enabling HPA:
+> ```sh
+> kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+> ```
+> Kind also requires patching the metrics-server args with `--kubelet-insecure-tls`. Without
+> metrics-server, `kubectl describe hpa` shows `TARGETS: <unknown>/80%` and no scaling occurs.
+
+**MQ (fixed single replica):** The MQ is hardcoded to `replicas: 1` with `strategy: Recreate` in
+the sub-chart template — this is an ADR-001 invariant, never a values-overridable setting. The
+in-memory broker cannot be replicated.
+
+**Streamer and Collector (manual scale):**
+
+Both services are stateless and support horizontal scaling. The Collector uses `ON CONFLICT DO NOTHING`
+for idempotent exactly-once persistence regardless of replica count. Proven to 10 concurrent Streamer
+instances in Phase 5 soak tests.
+
+```sh
+# Scale via kubectl:
+kubectl scale deployment/vantage-streamer --replicas=3
+kubectl scale deployment/vantage-collector --replicas=2
+
+# Scale via Helm:
+helm upgrade vantage deployments --reuse-values --set streamer.replicaCount=3
+helm upgrade vantage deployments --reuse-values --set collector.replicaCount=2
+```
+
+### Pagination
+
+`GET /api/v1/gpus/{id}/telemetry` supports cursor-free offset pagination:
+
+| Query param | Default | Constraint | Meaning |
+|-------------|---------|-----------|---------|
+| `limit` | `VANTAGE_GATEWAY_MAX_ROWS` (1000) | 1 ≤ limit ≤ MAX\_ROWS | Max rows to return |
+| `offset` | `0` | ≥ 0 | Row offset for pagination |
+
+Response envelope (replaces the former `X-Truncated`/`X-Row-Limit` headers):
+
+```json
+{
+  "data": [ { "gpu_id": "GPU-...", "metric_name": "...", "timestamp": "...", "value": 0.0, ... } ],
+  "pagination": {
+    "limit": 100,
+    "offset": 0,
+    "has_next": true
+  }
+}
+```
+
+`has_next: true` means at least one more row exists at `offset + limit`. Ordering is newest-first
+(composite index on `(gpu_id, timestamp DESC)`). Time-window parameters (`start_time`, `end_time`)
+still work alongside pagination — the offset applies within the filtered result set.
+
+```sh
+# First page (100 rows):
+curl -s 'http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=0'
+
+# Second page:
+curl -s 'http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry?limit=100&offset=100'
+
+# Time-window + pagination:
+curl -s 'http://localhost:8080/api/v1/gpus/GPU-5fd4f087-.../telemetry?start_time=2025-01-01T00:00:00Z&limit=50&offset=0'
+```
+
+Error codes: `400` for invalid `limit` or `offset` (non-integer, `limit < 1`, `offset < 0`, or
+`limit > VANTAGE_GATEWAY_MAX_ROWS`).
+
+### Structured logging
+
+All four services log through `log/slog` (stdlib, no external dependency) with a JSON handler.
+
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+
+Each log line carries a `service` attribute identifying the source (`mq`, `gateway`, `streamer`,
+`collector`). DSN and secrets are never logged.
+
+### CI
+
+GitHub Actions CI runs on every push and pull request:
+
+```yaml
+# .github/workflows/ci.yml — triggers: push (all branches) + pull_request
+make build      # compile all four service binaries
+make test       # go test -race (unit tests only)
+make coverage   # go test -race -tags=integration, ≥90% gate (uses testcontainers)
+make lint       # golangci-lint
+```
+
+The Makefile is the single source of truth for gate definitions — the workflow only calls make targets.
+
 ## Testing
 
 ### Automated (unit + concurrency + coverage)
@@ -526,6 +688,7 @@ leases, proving redelivery over the wire.
 | **3 — Pipeline** ✅ | Streamer + Collector (CSV → MQ → Postgres); exactly-once E2E test | `make build`, `make test`, `make coverage`, `make smoke-03` |
 | **4 — API Gateway** ✅ | REST read API + auto-generated OpenAPI | `make build`, `make test`, `make coverage`, `make smoke-04` |
 | **5 — DevOps** ✅ | 5 distroless images + Helm umbrella on kind; e2e harness | `make deploy`, `make smoke-05`, `make soak`, `make test-harness` |
+| **6 — Production Hardening** ✅ | Health endpoints + probes + resources + gateway HPA; pagination; slog JSON; CI workflow | `make build`, `make test`, `make coverage`, `make lint`, `curl /healthz` |
 
 ---
 
@@ -543,5 +706,9 @@ hard constraints (custom MQ from scratch, ≥90% coverage, auto-generated OpenAP
 
 ## AI-assisted development
 
-This project was built with Claude (Anthropic) as primary implementation partner.
-All code was human-reviewed before commit. See [`docs/AI_USAGE.md`](docs/AI_USAGE.md) for scope, oversight practices, and known limitations.
+This project was built with Claude (Anthropic) as primary implementation partner under the GSD
+framework. All code was human-reviewed before commit.
+
+- [`docs/AI_USAGE.md`](docs/AI_USAGE.md) — scope, model, oversight practices, known limitations
+- [`docs/AI_PROMPTS.md`](docs/AI_PROMPTS.md) — verbatim prompt log across all phases, with candid
+  notes on where prompts fell short and what manual intervention was required
