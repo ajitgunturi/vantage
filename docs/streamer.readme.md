@@ -12,6 +12,15 @@ instances run concurrently (soak-proven in Phase 5).
   running the Streamer or `make smoke-03`. The CSV is gitignored — never committed.
 - A running MQ (`./bin/mq`, gRPC on `:50051`).
 
+## CSV in Kubernetes (kind)
+
+The streamer image bakes the CSV into `/data/dcgm_metrics.csv` at `make docker` time
+(`build/streamer.Dockerfile`): the real `dcgm_metrics_*.csv` when present in the repo root,
+else the committed 12-row fixture (`build/fixture/dcgm_metrics.csv`). The image is built
+locally and loaded into kind — never pushed to a registry. A ConfigMap cannot carry the real
+file (1.1MB > the 1MiB ConfigMap limit); set `streamer.useFixtureConfigMap=true` in Helm
+values to force the tiny deterministic 3-GPU fixture instead of the image-baked data.
+
 ## Run the Streamer
 
 ```sh

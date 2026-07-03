@@ -34,10 +34,13 @@ spec:
               value: "5"
             - name: STREAMER_HEALTH_ADDR
               value: ":9000"
+          {{- if .Values.useFixtureConfigMap }}
+          # Fixture mount shadows the image-baked /data (3 synthetic GPUs only).
           volumeMounts:
             - name: fixture-csv
               mountPath: /data
               readOnly: true
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.livenessProbe }}
@@ -60,8 +63,10 @@ spec:
             timeoutSeconds: {{ .timeoutSeconds }}
             failureThreshold: {{ .failureThreshold }}
           {{- end }}
+      {{- if .Values.useFixtureConfigMap }}
       volumes:
         - name: fixture-csv
           configMap:
             name: {{ .Release.Name }}-streamer-fixture
+      {{- end }}
 {{- end }}

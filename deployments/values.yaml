@@ -37,6 +37,10 @@ streamer:
   # replicaCount: number of Streamer replicas (spec supports up to 10 — TestStream_Concurrent10).
   # Override with --set streamer.replicaCount=N for scale-out.
   replicaCount: 1
+  # useFixtureConfigMap: true mounts the 3-GPU fixture ConfigMap over /data,
+  # shadowing the image-baked CSV (real DCGM export, 247 GPUs, when built on
+  # the dev machine). Set true only to force the tiny deterministic fixture.
+  useFixtureConfigMap: false
   image:
     repository: vantage/streamer
     tag: dev
