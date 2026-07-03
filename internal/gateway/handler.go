@@ -64,6 +64,36 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, ErrorResponse{Error: msg})
 }
 
+// HealthzHandler returns a liveness probe handler that always responds 200 OK.
+// No database access required — if the process is alive, the handler fires.
+// Not annotated with swag — health endpoints are excluded from the documented API (Pitfall 1).
+func HealthzHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// ReadyzHandler returns a readiness probe handler that pings the Postgres pool
+// with a 2-second timeout. Returns 503 Service Unavailable if the pool is nil
+// or if the ping fails. Responses contain only generic status strings — no DSN,
+// driver text, or version is included (T-06-05 / ASVS V8).
+// Not annotated with swag — health endpoints are excluded from the documented API (Pitfall 1).
+func ReadyzHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pool == nil {
+			writeError(w, http.StatusServiceUnavailable, "not ready")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := pool.Ping(ctx); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "not ready")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
 // GetTelemetry godoc
 // @Summary     Get GPU telemetry
 // @Description Returns time-series metric rows for a GPU ordered newest-first (API-02).

@@ -46,7 +46,7 @@ const docTemplate = `{
         },
         "/gpus/{id}/telemetry": {
             "get": {
-                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nResult is capped at VANTAGE_GATEWAY_MAX_ROWS rows (OQ-1).\nWhen the result is capped, X-Truncated: true and X-Row-Limit: \u003cn\u003e headers are set (M-4).",
+                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nUse limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).",
                 "produces": [
                     "application/json"
                 ],
@@ -73,30 +73,31 @@ const docTemplate = `{
                         "description": "Inclusive upper bound (RFC3339); omit for unbounded",
                         "name": "end_time",
                         "in": "query"
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Max rows to return (default/ceiling: VANTAGE_GATEWAY_MAX_ROWS)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "description": "Row offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/gateway.GpuMetricResponse"
-                            }
-                        },
-                        "headers": {
-                            "X-Row-Limit": {
-                                "type": "string",
-                                "description": "Maximum rows returned (VANTAGE_GATEWAY_MAX_ROWS)"
-                            },
-                            "X-Truncated": {
-                                "type": "string",
-                                "description": "true when the result was capped at X-Row-Limit rows"
-                            }
+                            "$ref": "#/definitions/gateway.TelemetryPage"
                         }
                     },
                     "400": {
-                        "description": "malformed start_time or end_time",
+                        "description": "malformed start_time, end_time, limit, or offset",
                         "schema": {
                             "$ref": "#/definitions/gateway.ErrorResponse"
                         }
@@ -161,6 +162,34 @@ const docTemplate = `{
                 },
                 "value": {
                     "type": "number"
+                }
+            }
+        },
+        "gateway.PaginationMeta": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                }
+            }
+        },
+        "gateway.TelemetryPage": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/gateway.GpuMetricResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/gateway.PaginationMeta"
                 }
             }
         }

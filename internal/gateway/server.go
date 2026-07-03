@@ -26,6 +26,13 @@ func NewRouter(pool *pgxpool.Pool, cfg Config) http.Handler {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	// Liveness and readiness probes — registered at router root BEFORE the API
+	// group so they are always reachable even without the /api/v1 prefix.
+	// These endpoints carry no swag annotations and are excluded from the OpenAPI
+	// spec (Pitfall 1 — health endpoints must not appear in the documented API).
+	r.Get("/healthz", HealthzHandler())
+	r.Get("/readyz", ReadyzHandler(pool))
+
 	r.Route("/api/v1/gpus", func(r chi.Router) {
 		r.Get("/", ListGPUs(pool))
 		r.Get("/{id}/telemetry", GetTelemetry(pool, cfg.MaxRows)) // API-02, API-03 (Plan 02)
