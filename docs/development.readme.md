@@ -209,13 +209,15 @@ schema migrations run by a `post-install,post-upgrade` hook Job.
 ### Deploy workflow
 
 ```sh
-make kind-up     # create the kind cluster
-make deploy      # docker build (5 images) → kind-load → helm-install
-make smoke-05    # prove the deployed pipeline end-to-end
-make kind-down   # delete the cluster
+make kind-up                        # create the kind cluster
+make deploy CSV=/path/to/your.csv   # docker build (5 images) → kind-load → helm-install
+make smoke-05                       # prove the deployed pipeline end-to-end
+make kind-down                      # delete the cluster
 ```
 
-`make deploy` builds all five images (`vantage/{mq,streamer,collector,gateway,migrate}:dev`),
+`make deploy` requires the DCGM telemetry CSV to bake into the streamer image (`CSV=<path>`;
+prompts on a TTY, fails loudly with usage when scripted — see "Bring your own CSV" in the
+[README](../README.md)). It builds all five images (`vantage/{mq,streamer,collector,gateway,migrate}:dev`),
 loads them into kind, pulls the Bitnami PostgreSQL chart (`dependency-update`, automatic), and
 installs the umbrella release `vantage`. The migration hook Job runs after PostgreSQL Service is
 available — ensures the schema is applied before service pods roll.
