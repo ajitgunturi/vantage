@@ -23,13 +23,17 @@ new/changed metric names from the CSV without DDL changes.
 
 Three additional constraints drove the key design:
 
-1. **Idempotency requirement:** The Collector must be idempotent against MQ
-   at-least-once redeliveries (ADR-001). A `UNIQUE` constraint on the natural
-   key enables `INSERT ... ON CONFLICT DO NOTHING` without any in-process dedup
-   state.
-2. **GPU identity (D-04):** The GPU is identified by its **UUID** (from
-   `msg.GetUuid()` in the protobuf message), not by the DCGM ordinal integer.
-   UUIDs are stable across host reboots; ordinals are not.
+1. **Idempotency requirement:** The Collector must be idempotent — processing the
+   same message twice must produce no extra rows in the database — against MQ
+   at-least-once redeliveries (ADR-001). A natural key is the set of real-world
+   identifying columns that together uniquely describe a measurement, as opposed to
+   a generated surrogate ID. Here the natural key is `(gpu_id, metric_name,
+   timestamp)`. A `UNIQUE` constraint on this natural key enables
+   `INSERT ... ON CONFLICT DO NOTHING` without any in-process dedup state.
+2. **GPU identity (planning decision D-04 — use the GPU's UUID, not its DCGM ordinal
+   index):** The GPU is identified by its **UUID** (from `msg.GetUuid()` in the
+   protobuf message), not by the DCGM ordinal integer. UUIDs are stable across
+   host reboots; ordinals are not.
 3. **Restamp precision:** The Streamer restamps each record with
    `time.Now().UTC()` at `RFC3339Nano` (nanosecond) precision. Using second
    granularity would collapse multiple same-second readings from a single Streamer
@@ -55,7 +59,8 @@ Key schema choices:
 4. **`uq_gpu_metrics_natural_key UNIQUE (gpu_id, metric_name, timestamp)`** —
    the uniqueness constraint that makes `ON CONFLICT DO NOTHING` correct and
    efficient.
-5. **Composite index `(gpu_id, timestamp DESC)`** — the read path for
+5. **Composite index `(gpu_id, timestamp DESC)`** — a database index spanning two
+   columns at once, optimised for the read path of
    `GET /api/v1/gpus/{id}/telemetry?start_time=…&end_time=…`. EXPLAIN verified
    index scan at 100k rows (Phase 2 acceptance criterion).
 6. **RFC3339Nano restamp is locked** — using second-granularity (RFC3339) would

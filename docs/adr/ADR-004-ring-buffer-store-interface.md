@@ -46,8 +46,9 @@ behind a `Store` interface. Key design choices:
    I/O failures; the `bool` layer above can translate.
 
 3. **Drop-oldest on `Enqueue` when full** — the producer path evicts the oldest
-   unconsumed message to make room. This provides backpressure signalling (the
-   `bool` return) without blocking the producer goroutine.
+   unconsumed message to make room. This provides backpressure signalling — a
+   signal that the buffer is full, letting the caller observe the drop without
+   the producer goroutine ever blocking — via the `bool` return value.
 
 4. **Drop-newest (tail eviction) on `Requeue` when full** — `Requeue` re-enqueues
    a message that was in-flight and lost a consumer (at-least-once redelivery,
@@ -86,6 +87,6 @@ behind a `Store` interface. Key design choices:
 | Alternative | Trade-off |
 |---|---|
 | `sync.RWMutex` | Gains nothing: every `TryDequeue` mutates `head`+`count`, so all hot paths acquire the write lock anyway. Adds complexity with no throughput benefit. |
-| `Enqueue` returns `error` | Forces callers to check an error that can never occur in the in-memory implementation. The `ErrBufferFull` sentinel would be a valid `error` type but makes call sites more verbose than needed for a bool decision. |
+| `Enqueue` returns `error` | Forces callers to check an error that can never occur in the in-memory implementation. The `ErrBufferFull` sentinel value (a special marker used as a signal rather than representing a real I/O failure) would be a valid `error` type but makes call sites more verbose than needed for a bool decision. |
 | Unbounded queue (slice/linked list) | No backpressure; memory grows without bound under a slow consumer. Incompatible with the "ring buffer" constraint in the brief. |
-| Channel-only (no struct) | Go channels are bounded and goroutine-safe, but expose no inspection interface and cannot satisfy the `Inspect` method; implementing the lease/requeue semantics (ADR-001) on top of a channel requires a separate struct anyway. |
+| Channel-only (no struct) | Go channels are bounded and goroutine-safe, but expose no inspection interface and cannot satisfy the `Inspect` method; implementing the message-lease semantics (ADR-001) — where a message is temporarily held by a consumer and returned to the queue if the consumer disconnects without acknowledging it — on top of a channel requires a separate struct anyway. |

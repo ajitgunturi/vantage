@@ -1,6 +1,6 @@
 # ADR-008: Chart-Enforced Single Replica and Post-Install Migration Hook
 
-**Status:** Accepted (owner-approved deviation from locked D-09)
+**Status:** Accepted (owner-approved deviation from the original plan item D-09, which placed DB migrations as a pre-install Helm hook)
 **Date:** 2026-07-02
 **Phase:** 5 — DevOps + Quality Gates
 **Backfilled:** 2026-07-03
@@ -15,19 +15,21 @@ discovered during integration:
 **Problem A — MQ replica count:** The MQ is an in-memory, single-replica broker
 (ADR-001). If `replicas` is an overridable Helm value (the Helm convention), any
 `helm upgrade --set mq.replicas=2` call silently creates a second MQ instance.
-The second instance does not share in-memory state with the first; two active MQ
-replicas partition the message stream rather than replicating it — effectively a
-split-brain condition that violates the uniqueness guarantee in ADR-001 and breaks
-the Collector's dedup logic (ADR-007). The brief explicitly prohibits MQ
-clustering.
+The second instance does not share in-memory state with the first. Two active MQ
+replicas partition the message stream rather than replicating it — a split-brain
+condition where each instance independently processes a different subset of messages
+so neither has the complete picture. This violates the uniqueness guarantee in
+ADR-001 and breaks the Collector's dedup logic (ADR-007). The brief explicitly
+prohibits MQ clustering.
 
-**Problem B — Migration hook deadlock (deviation from D-09):** The Phase 5 plan
-originally placed the DB migration Kubernetes Job as a `pre-install,pre-upgrade`
-Helm hook (D-09, locked). A `pre-install` hook runs **before** Helm installs the
-release's own manifests. When the migration Job's init container waits for
-Postgres to be ready, and Postgres itself is deployed as part of the same release,
-a deadlock forms: the hook waits for Postgres, and Helm withholds Postgres until
-the hook completes.
+**Problem B — Migration hook deadlock (deviation from plan item D-09):** The Phase 5
+plan originally placed the DB migration Kubernetes Job as a `pre-install,pre-upgrade`
+Helm hook (plan item D-09, which was locked — meaning it had been approved and was
+not expected to change). A `pre-install` hook runs **before** Helm installs the
+release's own manifests. When the migration Job's init container waits for Postgres
+to be ready, and Postgres itself is deployed as part of the same release, a deadlock
+forms: the hook waits for Postgres, and Helm withholds Postgres until the hook
+completes.
 
 Discovery: the `helm install` timed out with the init container stuck in
 `PodInitializing`. Moving the hook to `post-install,post-upgrade` resolves the
@@ -62,9 +64,10 @@ The `helm.sh/hook` annotation is changed from `pre-install,pre-upgrade` to
 `post-install,post-upgrade`. Helm installs all chart manifests (including
 Postgres) first, then runs the Job. The Job's `initContainer` waits for Postgres
 to be ready, which is now guaranteed to be scheduled. `activeDeadlineSeconds: 300`
-on the Job spec + `helm install --timeout 6m` (convention WR-04) convert silent
-hangs into named, bounded errors — a cold image pull that takes longer than 5
-minutes surfaces as a Job `DeadlineExceeded` event rather than an indefinite
+on the Job spec + `helm install --timeout 6m` (a project operational convention,
+catalogued as WR-04, requiring all deployments to carry a hard timeout) converts
+silent hangs into named, bounded errors — a cold image pull that takes longer than
+5 minutes surfaces as a Job `DeadlineExceeded` event rather than an indefinite
 `helm install` block.
 
 ## Consequences
@@ -76,7 +79,7 @@ minutes surfaces as a Job `DeadlineExceeded` event rather than an indefinite
   pods during upgrades — no split-brain window, even briefly.
 - **Positive:** The migration deadlock is eliminated; `helm install` on a clean
   cluster completes without manual intervention.
-- **Positive:** Bounded loud failure (WR-04) means problems surface as named
+- **Positive:** The hard-timeout convention (WR-04) means problems surface as named
   Kubernetes events within 5–6 minutes rather than silently blocking the
   operator's terminal.
 - **Negative:** Making `replicas` non-overridable is an opinionated Helm
@@ -95,6 +98,6 @@ minutes surfaces as a Job `DeadlineExceeded` event rather than an indefinite
 | Alternative | Trade-off |
 |---|---|
 | `replicas` as a values knob (Helm convention) | Conventional but dangerous: any `--set mq.replicas=2` splits the in-memory broker's state across two uncoordinated instances. Violates ADR-001. |
-| Keep migration as `pre-install` hook (D-09) | Original intent — migration before services start. Deadlocks against a fresh cluster where Postgres is in the same release. Requires a separate Postgres pre-installed release, which defeats the single-release convenience goal. |
+| Keep migration as `pre-install` hook (plan item D-09) | Original intent — migration before services start. Deadlocks against a fresh cluster where Postgres is in the same release. Requires a separate Postgres pre-installed release, which defeats the single-release convenience goal. |
 | No Job timeout / no `--timeout` on helm install | Silently hangs on cold image pulls or slow cluster scheduling. Named bounded errors are better than indefinite blocks in CI and manual deploy workflows. |
 | `RollingUpdate` strategy for MQ | Would briefly run two MQ replicas during the rollover — exactly the split-brain condition being prevented. |

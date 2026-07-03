@@ -16,19 +16,20 @@ protocol is 5–10× faster than multi-row `INSERT` at scale.
 
 However, two constraints make `CopyFrom` incompatible:
 
-1. **Idempotency requirement (ADR-006):** The natural key uniqueness constraint
-   `uq_gpu_metrics_natural_key` requires `INSERT ... ON CONFLICT (gpu_id,
-   metric_name, timestamp) DO NOTHING`. `CopyFrom` uses the PostgreSQL `COPY`
-   protocol, which cannot express `ON CONFLICT` clauses. Duplicate rows from
-   MQ at-least-once redelivery (ADR-001) would cause `CopyFrom` to error rather
-   than silently skip.
+1. **Idempotency requirement (ADR-006):** The upsert must be idempotent — inserting
+   the same row twice must silently skip the duplicate rather than creating a second
+   copy. The natural key uniqueness constraint `uq_gpu_metrics_natural_key` achieves
+   this via `INSERT ... ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING`.
+   `CopyFrom` uses the PostgreSQL `COPY` protocol, which cannot express `ON CONFLICT`
+   clauses. Duplicate rows from MQ at-least-once redelivery (ADR-001) would cause
+   `CopyFrom` to error rather than silently skip.
 
-2. **Ack-on-persist contract (C-1 fix):** The correct at-least-once pipeline
-   requires the Collector to ack messages to the MQ **only after** they are
-   durably persisted to Postgres, not on receipt. This fix (quick task
-   260702-ku8) means acks are tied to the success of the batch write. The batch
-   semantics must be transactional so that a partial failure does not produce
-   partial acks.
+2. **Ack-on-persist contract (plan-level fix item C-1):** The correct at-least-once
+   pipeline requires the Collector to ack messages to the MQ **only after** they are
+   durably persisted to Postgres, not on receipt. This fix (tracked as quick task
+   260702-ku8 in the planning docs) means acks are tied to the success of the batch
+   write. The batch semantics must be transactional so that a partial failure does
+   not produce partial acks.
 
 Phase 3 plan 03-03 established that the correct choice is `pgx.Batch` /
 `SendBatch` with `INSERT ... ON CONFLICT ... DO NOTHING`.
@@ -56,8 +57,8 @@ Key properties of this approach:
    therefore no partial acks are sent to the MQ. The MQ redelivers the entire
    unacked batch on Collector reconnect — safe because the upsert is idempotent.
 
-3. **Ack-on-persist (C-1)** — Acks are sent to the MQ _after_ `SendBatch` and
-   `CloseBatch` return without error. If `SendBatch` errors, no acks are emitted
+3. **Ack-on-persist (plan fix C-1)** — Acks are sent to the MQ _after_ `SendBatch`
+   and `CloseBatch` return without error. If `SendBatch` errors, no acks are emitted
    and the MQ redelivers. This is the correct at-least-once contract.
 
 4. **Batch by time window** — the Collector flushes every 500 ms or every 1000

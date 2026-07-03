@@ -12,9 +12,10 @@ mechanism serving that decision, recorded alongside it.
 
 The vantage stack research (`.claude/CLAUDE.md` Technology Stack section)
 recommends **buf CLI v1.71.0** as the modern protobuf toolchain. `buf` provides:
-lint enforcement, breaking-change detection against `main`, and remote BSR plugin
-invocation (`buf generate` with remote plugins eliminates local `protoc` plugin
-installs). The Makefile `tools` target was initially written to install `buf`.
+lint enforcement, breaking-change detection against `main`, and remote BSR (Buf Schema
+Registry — a hosted service that distributes shared proto compiler plugin binaries)
+plugin invocation (`buf generate` with remote plugins eliminates local `protoc`
+(the protobuf compiler) plugin installs). The Makefile `tools` target was initially written to install `buf`.
 
 The project has exactly **one proto file**: `api/proto/mq.proto`, defining two
 RPCs (`Produce` and `Consume`) and a handful of message types. There is no plan

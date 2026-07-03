@@ -66,4 +66,4 @@ Consequences of this layout:
 | Alternative | Trade-off |
 |---|---|
 | Multi-module (`go.mod` per service) | True module-level isolation; independent versioning and dependency graphs. But: requires a `go.work` workspace for local development, `replace` directives for cross-module `pkg/` imports, and separate `go mod tidy` per service. Adds toolchain complexity that provides no practical benefit for a single-repo project with a single team. |
-| Module-per-service, no `go.work` | Produces hermetic per-service builds. But: cross-service `pkg/` changes require publishing an intermediate module version or using `replace` permanently — incompatible with `go build ./...` at the root, which is the Makefile's primary build command. |
+| Module-per-service, no `go.work` | Produces hermetic (fully self-contained — each service builds independently with no shared build graph or external workspace file) per-service builds. But: cross-service `pkg/` changes require publishing an intermediate module version or using `replace` permanently — incompatible with `go build ./...` at the root, which is the Makefile's primary build command. |

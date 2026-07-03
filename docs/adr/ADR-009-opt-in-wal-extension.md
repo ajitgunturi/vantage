@@ -25,9 +25,11 @@ without persistence. This narrows the WAL's responsibility: the WAL is not neede
 for live-path at-least-once (already solved); it is needed only for **crash
 durability** — preserving un-consumed messages across MQ process restarts.
 
-The roadmap originally placed WAL as Phase 6. Phase 6 was consumed by Production
+The roadmap originally placed the WAL (write-ahead log — a disk-resident journal
+that records each incoming message before it is consumed, so the queue can replay
+those messages after a crash) as Phase 6. Phase 6 was consumed by Production
 Hardening + Assignment Alignment (audit-driven work: health probes, pagination,
-CI, slog, resources). WAL was renumbered to Phase 7 on 2026-07-03 (STATE.md
+CI, slog, resources). The WAL was renumbered to Phase 7 on 2026-07-03 (STATE.md
 Roadmap Evolution).
 
 The `Store` interface seam was placed in Phase 1 (ADR-004) specifically to allow
@@ -51,11 +53,14 @@ Design constraints (fixed):
 2. **Single-replica only** — the WAL persists to the local filesystem of the
    single MQ pod. There is no distributed WAL, no replication, no cluster. The
    MQ `replicas: 1` Helm constraint (ADR-008) remains non-negotiable.
-3. **At-least-once semantics** — the WAL uses batched group-commit fsync (multiple
-   messages fsynced in a single OS write for throughput) with replay-on-restart.
-   After an MQ restart, the WAL is replayed into the ring buffer before accepting
-   new connections. Duplicates from replay are absorbed by the Collector's
-   idempotent upsert (ADR-007).
+3. **At-least-once semantics** — the WAL writes messages using a group-commit
+   strategy. Rather than calling `fsync` (the OS call that forces buffered data
+   from memory to stable storage on disk) after every individual message, the MQ
+   accumulates several messages and issues a single `fsync` for the whole batch.
+   This amortises the per-write disk latency across many messages. After an MQ
+   restart, the WAL is replayed into the ring buffer before the MQ accepts new
+   connections. Duplicates from replay are absorbed by the Collector's idempotent
+   upsert (ADR-007).
 4. **Interface compatibility** — the WAL backend must satisfy the `Store` interface
    (ADR-004). No call site in the MQ server changes when the WAL backend is
    selected.

@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-07-03
-**Phase:** 6 — Production Hardening + Assignment Alignment (requirement API-05, audit finding F-06)
+**Phase:** 6 — Production Hardening + Assignment Alignment (addresses audit finding F-06 and API requirement API-05)
 **Backfilled:** 2026-07-03
 **Related:** [ADR-006](ADR-006-long-narrow-schema-natural-key.md) (composite index this pagination queries over)
 
@@ -14,10 +14,11 @@ configurable `VANTAGE_GATEWAY_MAX_ROWS` ceiling (default 1000) and `X-Truncated`
 pagination was documented as **out of scope** in the Phase 4 plan.
 
 Phase 6 was triggered by a post-Phase-5 audit (`06-REVIEW.md`) that surfaced
-finding **F-06 / API-05**: the truncation-header approach is non-standard and
-provides no real pagination capability — clients cannot determine the total count,
-cannot fetch the next page, and are unlikely to inspect HTTP headers for pagination
-cues. The ROADMAP Evolution footnote records the move of API pagination from
+**finding F-06** (non-standard truncation API is a user-experience gap), recorded
+as **requirement API-05** (add a standard pagination envelope): the
+truncation-header approach is non-standard and provides no real pagination
+capability — clients cannot determine the total count, cannot fetch the next page,
+and are unlikely to inspect HTTP headers for pagination cues. The ROADMAP Evolution footnote records the move of API pagination from
 Out-of-Scope to in-scope for Phase 6 (plan 06-02).
 
 Two specific implementation concerns arose during plan 06-02 design:
@@ -29,9 +30,9 @@ Two specific implementation concerns arose during plan 06-02 design:
    query.
 
 2. **SQL injection via OFFSET:** Constructing `OFFSET` as a string in the SQL
-   statement (e.g., `fmt.Sprintf("... OFFSET %d", offset)`) is classified as
-   T-06-03 in the phase threat register. Passing OFFSET as a pgx positional
-   placeholder (`$N`) eliminates this vector.
+   statement (e.g., `fmt.Sprintf("... OFFSET %d", offset)`) is a SQL injection
+   risk catalogued as T-06-03 in the Phase 6 security threat register. Passing
+   OFFSET as a pgx positional placeholder (`$N`) eliminates this vector.
 
 Sources: 06-REVIEW.md finding F-06 / API-05, plan 06-02, STATE.md ## Decisions
 (limit+1 sentinel, OFFSET placeholder T-06-03), ROADMAP Evolution footnote
@@ -75,7 +76,8 @@ Key implementation choices:
 
 4. **`ReadyzHandler` response is generic** — unrelated but same-plan fix: the
    readiness probe response contains no DSN text or driver version strings
-   (T-06-05).
+   (T-06-05 in the Phase 6 threat register — preventing error responses from
+   leaking internal connection details).
 
 The `VANTAGE_GATEWAY_MAX_ROWS` ceiling is retained as a server-side hard cap
 (default 1000) applied on top of the client-requested `limit`. Clients cannot
@@ -86,8 +88,8 @@ request more than `MAX_ROWS` rows per page.
 - **Positive:** Standard pagination API — clients receive an explicit `has_next`
   flag and can fetch subsequent pages by incrementing `offset`.
 - **Positive:** Single DB query per request (limit+1 sentinel avoids `COUNT(*)`).
-- **Positive:** OFFSET as a pgx placeholder eliminates the SQL injection vector
-  (T-06-03 closed).
+- **Positive:** OFFSET as a pgx placeholder eliminates the SQL injection risk
+  (closing Phase 6 security threat T-06-03).
 - **Negative:** Breaking change to the response envelope — existing clients see
   a top-level object instead of an array. Documented in the OpenAPI spec and
   README; no external consumers at this stage.
