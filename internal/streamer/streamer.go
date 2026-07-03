@@ -5,7 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -113,7 +113,7 @@ func produceWithRetry(ctx context.Context, client pb.MQServiceClient, msg *pb.Te
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		log.Printf("streamer: produce failed (retrying in %v): %v", backoff, err)
+		slog.Warn("produce failed, retrying", "backoff", backoff, "error", err)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -152,12 +152,12 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 			if err != nil {
 				// Malformed row (wrong column count or parse error) — skip and log.
 				// csv.ParseError with Err=csv.ErrFieldCount is the common case here.
-				log.Printf("streamer: skip malformed row: %v", err)
+				slog.Warn("skip malformed row", "error", err)
 				continue
 			}
 			msg, err := recordToProto(record)
 			if err != nil {
-				log.Printf("streamer: skip bad record: %v", err)
+				slog.Warn("skip bad record", "error", err)
 				continue
 			}
 			// produceWithRetry retries on transient MQ failures so a single blip

@@ -3,7 +3,7 @@ package collector
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -64,7 +64,7 @@ func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryM
 	for _, msg := range msgs {
 		m, err := models.FromProto(msg)
 		if err != nil {
-			log.Printf("collector: skip bad proto (id=%d): %v", msg.GetId(), err)
+			slog.Warn("skip bad proto", "id", msg.GetId(), "error", err)
 			continue
 		}
 		b.Queue(models.InsertSQL,
@@ -90,7 +90,7 @@ func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryM
 			if firstErr == nil {
 				firstErr = err
 			}
-			log.Printf("collector: batch row %d exec: %v", i, err)
+			slog.Error("batch exec failed", "row", i, "error", err)
 		}
 	}
 	// br.Close flushes any remaining round-trips and releases the connection back
@@ -249,7 +249,7 @@ func Run(ctx context.Context, cfg Config, pool *pgxpool.Pool) error {
 
 		conn, err := dialMQ(cfg.MQAddr)
 		if err != nil {
-			log.Printf("collector: dial: %v — retrying in %v", err, backoff)
+			slog.Warn("dial failed, retrying", "error", err, "backoff", backoff)
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
@@ -282,7 +282,7 @@ func Run(ctx context.Context, cfg Config, pool *pgxpool.Pool) error {
 			backoff = 100 * time.Millisecond
 		}
 
-		log.Printf("collector: stream ended (%v) — reconnecting in %v", err, backoff)
+		slog.Info("stream ended, reconnecting", "error", err, "backoff", backoff)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
