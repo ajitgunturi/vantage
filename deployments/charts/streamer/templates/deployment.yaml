@@ -22,6 +22,9 @@ spec:
         - name: streamer
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: health
+              containerPort: 9000
           env:
             - name: STREAMER_MQ_ADDR
               value: "{{ .Release.Name }}-mq:50051"
@@ -29,10 +32,34 @@ spec:
               value: "/data/dcgm_metrics.csv"
             - name: STREAMER_LOOP_DELAY_MS
               value: "5"
+            - name: STREAMER_HEALTH_ADDR
+              value: ":9000"
           volumeMounts:
             - name: fixture-csv
               mountPath: /data
               readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            httpGet:
+              path: {{ .httpGet.path }}
+              port: {{ .httpGet.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            httpGet:
+              path: {{ .httpGet.path }}
+              port: {{ .httpGet.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+          {{- end }}
       volumes:
         - name: fixture-csv
           configMap:
