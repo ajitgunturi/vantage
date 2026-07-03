@@ -1,0 +1,7 @@
+# Default values for the streamer sub-chart.
+# The umbrella chart (deployments/values.yaml) overrides these per environment.
+
+# replicaCount controls the number of Streamer replicas.
+# The spec supports up to 10 concurrent instances (TestStream_Concurrent10).
+# Override via: --set streamer.replicaCount=N or in the umbrella values.yaml.
+replicaCount: 1

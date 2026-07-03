@@ -1,0 +1,7 @@
+# Default values for the collector sub-chart.
+# The umbrella chart (deployments/values.yaml) overrides these per environment.
+
+# replicaCount controls the number of Collector replicas.
+# Multiple collectors consume from the MQ independently (unique message delivery).
+# Override via: --set collector.replicaCount=N or in the umbrella values.yaml.
+replicaCount: 1
