@@ -178,3 +178,101 @@ func TestGetTelemetry_DBError_Unit(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&errResp))
 	assert.NotEmpty(t, errResp.Error)
 }
+
+// TestHealthz_Unit asserts that GET /healthz returns 200 OK with
+// application/json content type — no database required (liveness check).
+func TestHealthz_Unit(t *testing.T) {
+	cfg := gateway.Config{Addr: ":8080", MaxRows: 1000}
+	router := gateway.NewRouter(nil, cfg)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	router.ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code,
+		"GET /healthz must return 200 OK")
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json",
+		"GET /healthz must return application/json")
+}
+
+// TestReadyz_NilPool_Unit asserts that GET /readyz returns 503 when the pool
+// is nil — the gateway is not ready to serve traffic (readiness check).
+func TestReadyz_NilPool_Unit(t *testing.T) {
+	cfg := gateway.Config{Addr: ":8080", MaxRows: 1000}
+	router := gateway.NewRouter(nil, cfg)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	router.ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code,
+		"GET /readyz with nil pool must return 503 Service Unavailable")
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json",
+		"GET /readyz must return application/json")
+}
+
+// TestGetTelemetry_BadLimit_Unit asserts that invalid limit query params return
+// HTTP 400 with an ErrorResponse JSON body — before any database interaction.
+// Exercises: limit=0 (below minimum), limit=abc (non-numeric), limit=-5 (negative).
+func TestGetTelemetry_BadLimit_Unit(t *testing.T) {
+	cfg := gateway.Config{Addr: ":8080", MaxRows: 1000}
+	router := gateway.NewRouter(nil, cfg)
+
+	cases := []struct {
+		name  string
+		query string
+	}{
+		{"zero", "limit=0"},
+		{"non-numeric", "limit=abc"},
+		{"negative", "limit=-5"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet,
+				"/api/v1/gpus/GPU-test/telemetry?"+tc.query, nil)
+			router.ServeHTTP(w, r)
+
+			require.Equal(t, http.StatusBadRequest, w.Code,
+				"invalid limit (%s) must return 400", tc.query)
+			assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
+
+			var errResp gateway.ErrorResponse
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&errResp))
+			assert.NotEmpty(t, errResp.Error,
+				"ErrorResponse.Error must explain the bad limit param")
+		})
+	}
+}
+
+// TestGetTelemetry_BadOffset_Unit asserts that a negative offset query param
+// returns HTTP 400 with an ErrorResponse JSON body — before any database interaction.
+func TestGetTelemetry_BadOffset_Unit(t *testing.T) {
+	cfg := gateway.Config{Addr: ":8080", MaxRows: 1000}
+	router := gateway.NewRouter(nil, cfg)
+
+	cases := []struct {
+		name  string
+		query string
+	}{
+		{"negative", "offset=-1"},
+		{"non-numeric", "offset=xyz"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet,
+				"/api/v1/gpus/GPU-test/telemetry?"+tc.query, nil)
+			router.ServeHTTP(w, r)
+
+			require.Equal(t, http.StatusBadRequest, w.Code,
+				"invalid offset (%s) must return 400", tc.query)
+			assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
+
+			var errResp gateway.ErrorResponse
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&errResp))
+			assert.NotEmpty(t, errResp.Error,
+				"ErrorResponse.Error must explain the bad offset param")
+		})
+	}
+}
