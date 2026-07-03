@@ -156,7 +156,7 @@ Plans:
   4. `GET /api/v1/gpus/{id}/telemetry` supports `limit`/`offset` pushed down into the composite-index SQL path with pagination metadata in the response, and the regenerated OpenAPI spec documents it.
   5. A GitHub Actions workflow runs `make build test coverage lint` on every push and PR, and all services log through structured `log/slog`.
 
-**Plans**: 5/8 plans executed
+**Plans**: 6/8 plans executed
 
 **Wave 1** *(parallel — disjoint files)*
 
@@ -171,7 +171,7 @@ Plans:
 
 **Wave 3** *(depends on 06-02..06-05)*
 
-- [ ] 06-06-PLAN.md — Helm probes + resources + gateway HPA + scaling story (OPS-07, OPS-08, OPS-09)
+- [x] 06-06-PLAN.md — Helm probes + resources + gateway HPA + scaling story (OPS-07, OPS-08, OPS-09)
 
 **Wave 4** *(finalization)*
 
@@ -202,7 +202,7 @@ Plans:
 | 3. Pipeline — Streamer + Collector + Integration | 4/4 | Complete   | 2026-06-29 |
 | 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
 | 5. DevOps + Quality Gates | 5/5 | Complete    | 2026-07-02 |
-| 6. Production Hardening + Assignment Alignment | 5/8 | In Progress|  |
+| 6. Production Hardening + Assignment Alignment | 6/8 | In Progress|  |
 | 7. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
 
 ## Coverage

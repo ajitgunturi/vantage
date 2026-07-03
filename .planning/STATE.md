@@ -6,12 +6,12 @@ current_phase: 06
 current_phase_name: production-hardening-assignment-alignment
 status: executing
 stopped_at: Completed 06-02-PLAN.md — pagination + health handlers
-last_updated: "2026-07-03T05:01:47.960Z"
+last_updated: "2026-07-03T05:09:59.480Z"
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 31
-  completed_plans: 28
+  completed_plans: 29
   percent: 75
 ---
 
@@ -27,9 +27,9 @@ progress:
 
 - **Milestone:** v1 (MVP)
 - **Phase:** 06 (production-hardening-assignment-alignment) — EXECUTING
-- **Plan:** 6 of 8
+- **Plan:** 7 of 8
 - **Status:** Ready to execute
-- **Progress:** [█████████░] 90%
+- **Progress:** [█████████░] 94%
 
 ```
 [ ██████▱▱ ] 6/8 phases
@@ -80,6 +80,7 @@ progress:
 | Phase 06 P02 | 412 | 3 tasks | 8 files |
 | Phase 06 P03 | 114 | 2 tasks | 4 files |
 | Phase 06 P05 | 600s | 2 tasks | 6 files |
+| Phase 06 P06 | 211 | 3 tasks | 6 files |
 
 ### Roadmap Evolution
 
@@ -88,7 +89,7 @@ progress:
 
 ## Session Continuity
 
-**Last session:** 2026-07-03T05:01:47.952Z
+**Last session:** 2026-07-03T05:09:37.378Z
 **Stopped at:** Completed 06-02-PLAN.md — pagination + health handlers
 **Resume file:** None
 
@@ -152,3 +153,6 @@ progress:
 - [Phase ?]: ReadyzHandler returns generic status only — no DSN/driver text in response (T-06-05, plan 06-02)
 - [Phase ?]: 06-03
 - [Phase ?]: 06-03
+- [Phase ?]: probe timings: initialDelaySeconds 60 for gateway; 30 for mq/streamer/collector; failureThreshold 6 (plan 06-06)
+- [Phase ?]: MQ replicas:1 + strategy:Recreate hardcoded in chart template — not values-templatable; chart-layer enforcement of ADR-001 (plan 06-06)
+- [Phase ?]: gateway HPA: autoscaling/v2, values-gated enabled:false default, no HPA for mq/streamer/collector (plan 06-06)

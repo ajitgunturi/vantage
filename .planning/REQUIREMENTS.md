@@ -65,9 +65,9 @@
 - [x] **OPS-03**: Each microservice builds and deploys independently
 - [x] **OPS-04**: MQ deploys as a single replica with `strategy: Recreate`
 - [x] **OPS-05**: Makefile targets for `proto`, `build`, `test`, `coverage`, `swagger`
-- [ ] **OPS-07**: Every Helm sub-chart wires `livenessProbe`/`readinessProbe` (values-configurable) against the OBS-01 health endpoints _(Phase 6 — promotes v2 ENH-03 to v1)_
-- [ ] **OPS-08**: Every Helm sub-chart sets resource `requests`/`limits` with sensible per-service defaults, overridable via values
-- [ ] **OPS-09**: Gateway sub-chart ships an optional `autoscaling/v2` HPA (values-gated, CPU-based); README documents the streamer/collector scale-up/down workflow; MQ remains single-replica + `Recreate` (ADR-001 invariant untouched)
+- [x] **OPS-07**: Every Helm sub-chart wires `livenessProbe`/`readinessProbe` (values-configurable) against the OBS-01 health endpoints _(Phase 6 — promotes v2 ENH-03 to v1)_
+- [x] **OPS-08**: Every Helm sub-chart sets resource `requests`/`limits` with sensible per-service defaults, overridable via values
+- [x] **OPS-09**: Gateway sub-chart ships an optional `autoscaling/v2` HPA (values-gated, CPU-based); README documents the streamer/collector scale-up/down workflow; MQ remains single-replica + `Recreate` (ADR-001 invariant untouched)
 
 ### Quality (QA)
 
@@ -168,9 +168,9 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | DOC-03 | Phase 6 | Pending |
 | OBS-01 | Phase 6 | Complete |
 | OBS-02 | Phase 6 | Complete |
-| OPS-07 | Phase 6 | Pending |
-| OPS-08 | Phase 6 | Pending |
-| OPS-09 | Phase 6 | Pending |
+| OPS-07 | Phase 6 | Complete |
+| OPS-08 | Phase 6 | Complete |
+| OPS-09 | Phase 6 | Complete |
 | API-05 | Phase 6 | Complete |
 | QA-07 | Phase 6 | Pending |
 | DUR-01 | Phase 7 | Pending |
