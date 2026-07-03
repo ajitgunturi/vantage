@@ -63,8 +63,8 @@ func GPUExists(ctx context.Context, pool *pgxpool.Pool, id string) (bool, error)
 }
 
 // Telemetry returns the metric rows for the given gpu_id ordered by timestamp
-// DESC, capped at limit rows. start and end are optional inclusive RFC3339
-// time bounds (nil = unbounded in that direction; OQ-3 partial bounds).
+// DESC, capped at limit rows starting from offset. start and end are optional
+// inclusive RFC3339 time bounds (nil = unbounded; OQ-3 partial bounds).
 //
 // Design — two-query approach (RESEARCH Pattern 5 / A1):
 //   - No bounds: simpler query without any IS NULL predicate; index on
@@ -72,16 +72,19 @@ func GPUExists(ctx context.Context, pool *pgxpool.Pool, id string) (bool, error)
 //   - At least one bound: nullable-bound predicate so the planner can still
 //     use the composite index for both full and partial windows (API-03).
 //
+// offset is the row offset for pagination (API-05). Both limit and offset are
+// passed as pgx $N placeholders — never string-concatenated (T-06-03 / ASVS V5).
+//
 // Returns a non-nil empty slice when no rows match (encodes as [] not null).
 //
-// Security: all parameters are pgx-bound ($1..$4); no string concatenation;
+// Security: all parameters are pgx-bound ($1..$5); no string concatenation;
 // DSN never embedded in errors (T-04-03, T-04-04, T-04-06 / ASVS V5, V8).
 func Telemetry(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	id string,
 	start, end *time.Time,
-	limit int,
+	limit, offset int,
 ) ([]models.GpuMetric, error) {
 	// COALESCE converts NULLs in optional text columns to empty strings so that
 	// the scan target (*string) never encounters a NULL. In production, the
@@ -100,13 +103,14 @@ func Telemetry(
 	if start == nil && end == nil {
 		// Simple path — no time filtering; index on (gpu_id, timestamp DESC) is
 		// used directly without the OR-IS-NULL overhead.
+		// OFFSET $3 is bound as a pgx placeholder — never string-concatenated (T-06-03).
 		rows, err = pool.Query(ctx,
 			`SELECT `+cols+`
 			 FROM gpu_metrics
 			 WHERE gpu_id = $1
 			 ORDER BY timestamp DESC
-			 LIMIT $2`,
-			id, limit,
+			 LIMIT $2 OFFSET $3`,
+			id, limit, offset,
 		)
 	} else {
 		// Windowed path — nullable-bound predicate keeps partial bounds working
@@ -114,6 +118,7 @@ func Telemetry(
 		// bound; same for end/$3. The planner still uses idx_gpu_metrics_gpu_id_ts
 		// because gpu_id is the leading column and ORDER BY timestamp DESC matches
 		// the index direction (API-03 / DB-02).
+		// OFFSET $5 is bound as a pgx placeholder — never string-concatenated (T-06-03).
 		rows, err = pool.Query(ctx,
 			`SELECT `+cols+`
 			 FROM gpu_metrics
@@ -121,8 +126,8 @@ func Telemetry(
 			   AND ($2::timestamptz IS NULL OR timestamp >= $2)
 			   AND ($3::timestamptz IS NULL OR timestamp <= $3)
 			 ORDER BY timestamp DESC
-			 LIMIT $4`,
-			id, start, end, limit,
+			 LIMIT $4 OFFSET $5`,
+			id, start, end, limit, offset,
 		)
 	}
 	if err != nil {

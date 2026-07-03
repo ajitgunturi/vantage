@@ -36,6 +36,11 @@ type Config struct {
 	// Default is 100 (2 × default BatchSize).
 	// Set from COLLECTOR_CREDIT.
 	Credit int
+
+	// HealthAddr is the TCP address for the HTTP health listener (:9001 by default).
+	// Kubernetes liveness and readiness probes target this address.
+	// Set from COLLECTOR_HEALTH_ADDR; default ":9001".
+	HealthAddr string
 }
 
 // FromEnv builds a Config from environment variables. Invalid or missing
@@ -44,10 +49,11 @@ type Config struct {
 // the responsibility of pkg/db.FromEnv.
 func FromEnv() Config {
 	cfg := Config{
-		MQAddr:    ":50051",
-		BatchSize: 50,
-		FlushMS:   500,
-		Credit:    100, // 2 × default BatchSize — must be >= BatchSize
+		MQAddr:     ":50051",
+		BatchSize:  50,
+		FlushMS:    500,
+		Credit:     100, // 2 × default BatchSize — must be >= BatchSize
+		HealthAddr: ":9001",
 	}
 	if v := os.Getenv("COLLECTOR_MQ_ADDR"); v != "" {
 		cfg.MQAddr = v
@@ -66,6 +72,9 @@ func FromEnv() Config {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.Credit = n
 		}
+	}
+	if v := os.Getenv("COLLECTOR_HEALTH_ADDR"); v != "" {
+		cfg.HealthAddr = v
 	}
 	return cfg
 }

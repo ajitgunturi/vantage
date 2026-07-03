@@ -297,6 +297,91 @@ func TestStream_LoopsUntilCancel(t *testing.T) {
 		"Stream must complete at least 2 full CSV passes before cancellation")
 }
 
+// TestStream_AlreadyCancelledCtx asserts that Stream returns ctx.Err() immediately
+// when the context is already cancelled at the top of the outer loop (STREAM-01).
+// This exercises the ctx.Err() guard before the first Seek call.
+func TestStream_AlreadyCancelledCtx(t *testing.T) {
+	path := writeTempCSV(t, [][]string{
+		validRecord("GPU-cancel", "METRIC_A", "1.0"),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before calling Stream
+
+	err := Stream(ctx, &fakeProducer{}, path, 0, false)
+	require.ErrorIs(t, err, context.Canceled,
+		"Stream must return context.Canceled when ctx is already done at loop top")
+}
+
+// TestStream_SkipsBadValueRecord asserts that Stream skips a 12-column row
+// whose value column (col 10) is a non-numeric string. The row is not published
+// and Stream continues processing subsequent rows.
+func TestStream_SkipsBadValueRecord(t *testing.T) {
+	// Row with valid 12 columns but non-parseable float in col 10.
+	badValue := []string{
+		"2025-07-18T20:42:34Z", // col 0: timestamp
+		"METRIC_BAD",           // col 1: metric_name
+		"0",                    // col 2: gpu_id
+		"nvidia0",              // col 3: device
+		"GPU-bad-val",          // col 4: uuid
+		"H100",                 // col 5: model_name
+		"host1",                // col 6: hostname
+		"",                     // col 7: container
+		"",                     // col 8: pod
+		"",                     // col 9: namespace
+		"not-a-float",          // col 10: value — intentionally bad
+		"",                     // col 11: labels_raw
+	}
+	path := writeTempCSV(t, [][]string{
+		badValue,
+		validRecord("GPU-good", "METRIC_GOOD", "1.0"),
+	})
+
+	fake := &fakeProducer{}
+	err := Stream(context.Background(), fake, path, 0, true)
+
+	require.NoError(t, err, "Stream must not fail on a bad-value row; it skips and continues")
+	fake.mu.Lock()
+	count := fake.count
+	fake.mu.Unlock()
+	require.Equal(t, 1, count, "only the valid row must be published; bad-value row is skipped")
+}
+
+// TestStream_LoopDelay_CancelAfterFirstRow tests the loopDelayMS > 0 path by
+// running Stream with a 1ms inter-row delay and cancelling the context after the
+// first Produce. The ctx.Done case of the delay select must fire.
+func TestStream_LoopDelay_CancelAfterFirstRow(t *testing.T) {
+	path := writeTempCSV(t, [][]string{
+		validRecord("GPU-delay-1", "METRIC_A", "1.0"),
+		validRecord("GPU-delay-2", "METRIC_B", "2.0"),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Producer that cancels the context after the first successful Produce.
+	fake := &cancelProducer{cancel: cancel, threshold: 1}
+
+	err := Stream(ctx, fake, path, 1 /* 1ms delay */, false)
+
+	// The delay's ctx.Done case fires before the second row.
+	require.ErrorIs(t, err, context.Canceled,
+		"Stream must return context.Canceled when cancelled during inter-row delay")
+}
+
+// TestProduceWithRetry_CancelDuringBackoff asserts that produceWithRetry returns
+// context.Canceled when the context is cancelled while waiting in the backoff sleep.
+func TestProduceWithRetry_CancelDuringBackoff(t *testing.T) {
+	// A producer that always fails so produceWithRetry enters backoff.
+	alwaysFail := &erringThenSucceedProducer{failN: 1000}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	msg := &pb.TelemetryMessage{Timestamp: time.Now().UTC().Format(time.RFC3339Nano)}
+	err := produceWithRetry(ctx, alwaysFail, msg)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded,
+		"produceWithRetry must propagate ctx error when cancelled during backoff sleep")
+}
+
 // TestStream_RetryOnProduceError verifies M-6: Stream must retry with backoff when
 // Produce fails, and succeed once the MQ "recovers" (fake client stops failing).
 //
@@ -333,6 +418,30 @@ func TestStream_RetryOnProduceError(t *testing.T) {
 		"must have made at least 4 Produce attempts (3 failures + successes)")
 	require.Equal(t, 2, successCount,
 		"both CSV rows must eventually be published successfully")
+}
+
+// --- Runner tests ---------------------------------------------------------
+
+// TestRunner_NotReadyBeforeStart asserts that a freshly-created Runner reports
+// IsReady() == false before Run has been called (OBS-01).
+func TestRunner_NotReadyBeforeStart(t *testing.T) {
+	runner := NewRunner(Config{MQAddr: ":50051", CSVPath: "/some/path.csv"})
+	require.False(t, runner.IsReady(), "Runner must not be ready before Run is called")
+}
+
+// TestConfig_HealthAddrDefault asserts that FromEnv defaults HealthAddr to ":9000"
+// when STREAMER_HEALTH_ADDR is not set.
+func TestConfig_HealthAddrDefault(t *testing.T) {
+	t.Setenv("STREAMER_HEALTH_ADDR", "")
+	cfg := FromEnv()
+	require.Equal(t, ":9000", cfg.HealthAddr, "HealthAddr must default to :9000")
+}
+
+// TestConfig_HealthAddrOverride asserts that STREAMER_HEALTH_ADDR overrides the default.
+func TestConfig_HealthAddrOverride(t *testing.T) {
+	t.Setenv("STREAMER_HEALTH_ADDR", ":9001")
+	cfg := FromEnv()
+	require.Equal(t, ":9001", cfg.HealthAddr, "STREAMER_HEALTH_ADDR must override default")
 }
 
 // TestStream_Concurrent10 launches 10 goroutines each calling Stream(once=true)

@@ -12,13 +12,14 @@
 - [x] **Phase 3: Pipeline — Streamer + Collector + Integration** - Live CSV telemetry flowing end-to-end into PostgreSQL under concurrency (completed 2026-06-29)
 - [x] **Phase 4: API Gateway + OpenAPI Docs** - Documented REST access to stored GPU telemetry (completed 2026-06-30)
 - [x] **Phase 5: DevOps + Quality Gates** - Independent containerized services on Kubernetes via Helm, with enforced quality bar (completed 2026-07-02)
-- [ ] **Phase 6: MQ Durability — Opt-in WAL Persistence** - Crash-durable broker mode behind the Store interface; at-least-once via replay
+- [x] **Phase 6: Production Hardening + Assignment Alignment** - Close the review/audit gaps: AI-prompt log, health endpoints + probes, resources/HPA, pagination, CI, slog (completed 2026-07-03)
+- [ ] **Phase 7: MQ Durability — Opt-in WAL Persistence** - Crash-durable broker mode behind the Store interface; at-least-once via replay
 
 ## Phase Details
 
 ### Phase 1: Foundation — Proto Contract + MQ Core
 
-**Goal**: A race-safe, in-memory custom message queue is reachable over gRPC (data plane) and HTTP (control plane), delivering each enqueued message to exactly one consumer under concurrency. Storage sits behind a `Store` interface (in-memory default) so a durable backend can be added later (Phase 6) without touching consumers.
+**Goal**: A race-safe, in-memory custom message queue is reachable over gRPC (data plane) and HTTP (control plane), delivering each enqueued message to exactly one consumer under concurrency. Storage sits behind a `Store` interface (in-memory default) so a durable backend can be added later (Phase 7) without touching consumers.
 **Mode:** mvp
 **Depends on**: Nothing (first phase; the proto contract is the import root)
 **Requirements**: MQ-01, MQ-02, MQ-03, MQ-04, MQ-05, MQ-06, MQ-07, MQ-08, QA-02
@@ -65,7 +66,7 @@ Plans:
   1. A migration creates a relational time-series table with `gpu_id`, `timestamp TIMESTAMPTZ`, and numeric metric columns.
   2. `EXPLAIN` on a `(gpu_id, timestamp DESC)` range query confirms the composite index is used (index scan, not seq scan) at representative scale.
   3. `pkg/db` initializes a `pgxpool` connection pool that both the Collector and the API Gateway can import and reuse.
-  4. The schema carries a natural-key unique constraint enabling idempotent inserts, so at-least-once redelivery (once durability is enabled in Phase 6) cannot create duplicate rows.
+  4. The schema carries a natural-key unique constraint enabling idempotent inserts, so at-least-once redelivery (once durability is enabled in Phase 7) cannot create duplicate rows.
 
 **Plans**: 2/2 plans complete
 
@@ -141,7 +142,43 @@ Plans:
 
 - [x] 05-05-PLAN.md — Fix migrate-job hook deadlock: pre→post-install,post-upgrade + activeDeadlineSeconds + helm --timeout; re-prove kind E2E (OPS-02, OPS-03) [wave 1]
 
-### Phase 6: MQ Durability — Opt-in WAL Persistence
+### Phase 6: Production Hardening + Assignment Alignment
+
+**Goal**: The delivered system satisfies every assignment deliverable a grader can check — verbatim AI-prompt documentation, Kubernetes-native health/elasticity (probes, resources, HPA), paginated telemetry reads, CI-enforced quality gates, and structured logging — without touching MQ delivery semantics or the single-replica invariant.
+**Mode:** mvp
+**Depends on**: Phase 4 (gateway endpoints to paginate), Phase 5 (charts to harden, Makefile gates for CI). Source: code review + assignment-alignment audit — see `.planning/phases/06-production-hardening-assignment-alignment/06-REVIEW.md`.
+**Requirements**: DOC-02, DOC-03, OBS-01, OBS-02, OPS-07, OPS-08, OPS-09, API-05, QA-07
+**Success Criteria** (what must be TRUE):
+
+  1. `docs/AI_PROMPTS.md` records the AI-assisted workflow as a verbatim prompt log — stage, tool, prompt, outcome, and where the prompt fell short requiring manual intervention — covering bootstrap, code, tests, and build env; linked from README.
+  2. Every service exposes `/healthz` and `/readyz` (gateway readiness pings the DB pool; MQ readiness reflects the gRPC server; streamer/collector run a lightweight health listener), and every Helm sub-chart wires liveness/readiness probes plus resource requests/limits.
+  3. The gateway sub-chart ships an optional `autoscaling/v2` HPA (values-gated), and the README documents the scale-up/down workflow for streamers and collectors; the MQ remains hardcoded single-replica + `Recreate`.
+  4. `GET /api/v1/gpus/{id}/telemetry` supports `limit`/`offset` pushed down into the composite-index SQL path with pagination metadata in the response, and the regenerated OpenAPI spec documents it.
+  5. A GitHub Actions workflow runs `make build test coverage lint` on every push and PR, and all services log through structured `log/slog`.
+
+**Plans**: 8/8 plans complete
+
+**Wave 1** *(parallel — disjoint files)*
+
+- [x] 06-01-PLAN.md — slog structured-logging foundation across all services (OBS-02)
+- [x] 06-02-PLAN.md — Gateway health endpoints + limit/offset pagination + swagger regen (OBS-01, API-05)
+
+**Wave 2** *(parallel; depend on 06-01)*
+
+- [x] 06-03-PLAN.md — MQ /healthz + /readyz on the control-plane mux (OBS-01)
+- [x] 06-04-PLAN.md — Streamer health listener + Runner readiness (OBS-01)
+- [x] 06-05-PLAN.md — Collector health listener + Runner readiness (OBS-01)
+
+**Wave 3** *(depends on 06-02..06-05)*
+
+- [x] 06-06-PLAN.md — Helm probes + resources + gateway HPA + scaling story (OPS-07, OPS-08, OPS-09)
+
+**Wave 4** *(finalization)*
+
+- [x] 06-07-PLAN.md — GitHub Actions CI running the make gates (QA-07)
+- [x] 06-08-PLAN.md — AI_PROMPTS.md verbatim prompt log + README accuracy pass (DOC-02, DOC-03)
+
+### Phase 7: MQ Durability — Opt-in WAL Persistence
 
 **Goal**: With durability enabled via config, the MQ persists produced messages to a write-ahead log and replays them on restart, so a broker crash loses no un-consumed message — while the in-memory default stays byte-for-byte unchanged.
 **Mode:** mvp
@@ -165,14 +202,16 @@ Plans:
 | 3. Pipeline — Streamer + Collector + Integration | 4/4 | Complete   | 2026-06-29 |
 | 4. API Gateway + OpenAPI Docs | 3/3 | Complete    | 2026-06-30 |
 | 5. DevOps + Quality Gates | 5/5 | Complete    | 2026-07-02 |
-| 6. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
+| 6. Production Hardening + Assignment Alignment | 8/8 | Complete   | 2026-07-03 |
+| 7. MQ Durability — Opt-in WAL Persistence | 0/TBD | Not started | - |
 
 ## Coverage
 
-- v1 requirements: 43 total (+MQ-09, MQ-10 for Phase 01.1; see REQUIREMENTS.md)
-- Mapped to phases: 43
+- v1 requirements: 52 total (+MQ-09, MQ-10 for Phase 01.1; +DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07 for Phase 6; see REQUIREMENTS.md)
+- Mapped to phases: 52
 - Orphaned: 0 ✓
 
 ---
 *Roadmap created: 2026-06-27*
 *Updated 2026-06-28: inserted Phase 01.1 (bidi at-least-once, ADR-001); +MQ-09/MQ-10.*
+*Updated 2026-07-03: inserted Phase 6 (Production Hardening + Assignment Alignment) from the code-review/assignment-alignment audit; WAL durability renumbered Phase 6 → Phase 7. +DOC-02/03, OBS-01/02, OPS-07/08/09, API-05, QA-07; ENH-03 promoted to v1 (OPS-07); API pagination moved out of Out-of-Scope (API-05).*

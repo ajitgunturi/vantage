@@ -178,13 +178,21 @@ func telemetryPath(gpuID string, params url.Values) string {
 	return base + "?" + params.Encode()
 }
 
-// decodeMetrics decodes a []gateway.GpuMetricResponse from the recorder body.
+// decodePage decodes a gateway.TelemetryPage envelope from the recorder body.
+// This is the primary decode helper post-pagination; decodeMetrics wraps it.
+func decodePage(t *testing.T, w *httptest.ResponseRecorder) gateway.TelemetryPage {
+	t.Helper()
+	var page gateway.TelemetryPage
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&page),
+		"response body must be a valid TelemetryPage JSON object")
+	return page
+}
+
+// decodeMetrics decodes a []gateway.GpuMetricResponse from the recorder body
+// by unwrapping the TelemetryPage envelope and returning only the data slice.
 func decodeMetrics(t *testing.T, w *httptest.ResponseRecorder) []gateway.GpuMetricResponse {
 	t.Helper()
-	var rows []gateway.GpuMetricResponse
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows),
-		"response body must be a valid JSON array of GpuMetricResponse")
-	return rows
+	return decodePage(t, w).Data
 }
 
 // TestGetTelemetry_NoFilter seeds 3 rows for a GPU and asserts that
@@ -335,8 +343,8 @@ func TestGetTelemetry_UnknownGPU(t *testing.T) {
 }
 
 // TestGetTelemetry_KnownGPUEmptyWindow asserts OQ-2: a known gpu_id with no
-// rows matching the requested time window returns 200 with an empty array []
-// (not 404, not null).
+// rows matching the requested time window returns 200 with an empty data array
+// in the TelemetryPage envelope (not 404, not null).
 func TestGetTelemetry_KnownGPUEmptyWindow(t *testing.T) {
 	ctx := context.Background()
 	t.Cleanup(func() { restoreDB(ctx, t) })
@@ -365,13 +373,10 @@ func TestGetTelemetry_KnownGPUEmptyWindow(t *testing.T) {
 		"known GPU with empty window must return 200 (not 404)")
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 
-	// Capture body before decoding — json.Decoder advances the buffer.
-	body := w.Body.String()
-	var rows []gateway.GpuMetricResponse
-	require.NoError(t, json.Unmarshal([]byte(body), &rows),
-		"empty-window body must be valid JSON")
-	assert.Len(t, rows, 0, "empty window must return [] (not null)")
-	assert.JSONEq(t, "[]", body, "empty-window body must be exactly []")
+	// Decode the TelemetryPage envelope — Data must be empty, has_next false.
+	page := decodePage(t, w)
+	assert.Len(t, page.Data, 0, "empty window must return data:[] (not null)")
+	assert.False(t, page.Pagination.HasNext, "empty window must have has_next:false")
 }
 
 // TestGetTelemetry_BadTime asserts OQ-4: a malformed start_time parameter
@@ -399,6 +404,7 @@ func TestGetTelemetry_BadTime(t *testing.T) {
 
 // TestGetTelemetry_ResultCap asserts OQ-1: result count is capped at MaxRows
 // even when more rows exist. Uses a config with MaxRows: 2 and seeds 3 rows.
+// The pagination envelope must reflect has_next=true when the cap is hit.
 func TestGetTelemetry_ResultCap(t *testing.T) {
 	ctx := context.Background()
 	t.Cleanup(func() { restoreDB(ctx, t) })
@@ -420,7 +426,68 @@ func TestGetTelemetry_ResultCap(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	rows := decodeMetrics(t, w)
-	assert.Len(t, rows, 2,
+	page := decodePage(t, w)
+	assert.Len(t, page.Data, 2,
 		"result must be capped at MaxRows=2 even though 3 rows exist")
+	assert.True(t, page.Pagination.HasNext,
+		"has_next must be true when MaxRows cap is hit and more rows exist")
+	assert.Equal(t, 2, page.Pagination.Limit, "pagination.limit must reflect the applied cap")
+}
+
+// TestGetTelemetry_Pagination seeds 5 rows for a single GPU and verifies the
+// two offset windows required by API-05:
+//   - limit=2&offset=0 → 2 rows, has_next=true
+//   - limit=2&offset=4 → 1 row, has_next=false
+func TestGetTelemetry_Pagination(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	gpuID := "GPU-ffffffff-0000-0000-0000-000000000066"
+	base := time.Now().UTC().Truncate(time.Second)
+
+	// Seed 5 rows with 1-second spacing.
+	for i := range 5 {
+		seedMetric(t, gpuID, base.Add(time.Duration(i)*time.Second))
+	}
+
+	cfg := gateway.Config{Addr: ":8080", MaxRows: 1000}
+	router := gateway.NewRouter(testPool, cfg)
+
+	t.Run("offset=0 has_next=true", func(t *testing.T) {
+		q := url.Values{}
+		q.Set("limit", "2")
+		q.Set("offset", "0")
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, telemetryPath(gpuID, q), nil)
+		router.ServeHTTP(w, r)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		page := decodePage(t, w)
+		assert.Len(t, page.Data, 2,
+			"limit=2&offset=0 must return exactly 2 rows")
+		assert.True(t, page.Pagination.HasNext,
+			"has_next must be true when 3 rows remain after offset=0")
+		assert.Equal(t, 2, page.Pagination.Limit)
+		assert.Equal(t, 0, page.Pagination.Offset)
+	})
+
+	t.Run("offset=4 has_next=false", func(t *testing.T) {
+		q := url.Values{}
+		q.Set("limit", "2")
+		q.Set("offset", "4")
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, telemetryPath(gpuID, q), nil)
+		router.ServeHTTP(w, r)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		page := decodePage(t, w)
+		assert.Len(t, page.Data, 1,
+			"limit=2&offset=4 must return exactly 1 row (row #5 of 5)")
+		assert.False(t, page.Pagination.HasNext,
+			"has_next must be false when at the last page")
+		assert.Equal(t, 2, page.Pagination.Limit)
+		assert.Equal(t, 4, page.Pagination.Offset)
+	})
 }

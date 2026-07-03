@@ -30,6 +30,24 @@ definitions:
       value:
         type: number
     type: object
+  gateway.PaginationMeta:
+    properties:
+      has_next:
+        type: boolean
+      limit:
+        type: integer
+      offset:
+        type: integer
+    type: object
+  gateway.TelemetryPage:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/gateway.GpuMetricResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/gateway.PaginationMeta'
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -63,8 +81,7 @@ paths:
       description: |-
         Returns time-series metric rows for a GPU ordered newest-first (API-02).
         Optional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).
-        Result is capped at VANTAGE_GATEWAY_MAX_ROWS rows (OQ-1).
-        When the result is capped, X-Truncated: true and X-Row-Limit: <n> headers are set (M-4).
+        Use limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).
       parameters:
       - description: GPU UUID
         in: path
@@ -79,24 +96,25 @@ paths:
         in: query
         name: end_time
         type: string
+      - description: 'Max rows to return (default/ceiling: VANTAGE_GATEWAY_MAX_ROWS)'
+        in: query
+        minimum: 1
+        name: limit
+        type: integer
+      - description: 'Row offset for pagination (default: 0)'
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
-          headers:
-            X-Row-Limit:
-              description: Maximum rows returned (VANTAGE_GATEWAY_MAX_ROWS)
-              type: string
-            X-Truncated:
-              description: true when the result was capped at X-Row-Limit rows
-              type: string
           schema:
-            items:
-              $ref: '#/definitions/gateway.GpuMetricResponse'
-            type: array
+            $ref: '#/definitions/gateway.TelemetryPage'
         "400":
-          description: malformed start_time or end_time
+          description: malformed start_time, end_time, limit, or offset
           schema:
             $ref: '#/definitions/gateway.ErrorResponse'
         "404":

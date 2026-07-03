@@ -18,8 +18,9 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -29,20 +30,26 @@ import (
 	"github.com/ajitg/vantage/internal/gateway"
 	"github.com/ajitg/vantage/pkg/db"
 	_ "github.com/ajitg/vantage/pkg/docs" // registers generated OpenAPI spec on init()
+	pkglogger "github.com/ajitg/vantage/pkg/logger"
 )
 
 func main() {
+	l := pkglogger.New("gateway")
+	slog.SetDefault(l)
+
 	// Build gateway config from environment (GATEWAY_ADDR, VANTAGE_GATEWAY_MAX_ROWS).
 	cfg, err := gateway.FromEnv()
 	if err != nil {
-		log.Fatalf("gateway: config: %v", err)
+		slog.Error("config error", "error", err)
+		os.Exit(1)
 	}
 
 	// Build DB config from environment (VANTAGE_DB_DSN, VANTAGE_DB_MAX_CONNS).
 	// DSN is never logged — only the error wrapper context is printed (ASVS V8).
 	dbCfg, err := db.FromEnv()
 	if err != nil {
-		log.Fatalf("gateway: db config: %v", err)
+		slog.Error("db config error", "error", err)
+		os.Exit(1)
 	}
 
 	// Graceful shutdown: cancel on SIGTERM or SIGINT.
@@ -51,13 +58,15 @@ func main() {
 
 	// Apply forward migrations (idempotent; concurrent callers are safe via pg advisory lock).
 	if err := db.Migrate(ctx, dbCfg.DSN); err != nil {
-		log.Fatalf("gateway: migrate: %v", err)
+		slog.Error("migrate error", "error", err)
+		os.Exit(1)
 	}
 
 	// Open the connection pool; close it on function exit.
 	pool, err := db.New(ctx, dbCfg)
 	if err != nil {
-		log.Fatalf("gateway: db.New: %v", err)
+		slog.Error("db pool error", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -75,7 +84,7 @@ func main() {
 
 	// (1) HTTP server goroutine.
 	g.Go(func() error {
-		log.Printf("gateway: listening on %s", cfg.Addr)
+		slog.Info("listening", "addr", cfg.Addr)
 		return srv.ListenAndServe()
 	})
 
@@ -88,6 +97,7 @@ func main() {
 	})
 
 	if err := g.Wait(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		slog.Error("fatal error", "error", err)
+		os.Exit(1)
 	}
 }

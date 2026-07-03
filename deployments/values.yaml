@@ -8,6 +8,29 @@ mq:
     repository: vantage/mq
     tag: dev
     pullPolicy: IfNotPresent  # D-06: user choice over Never
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
 
 streamer:
   enabled: true
@@ -15,6 +38,29 @@ streamer:
     repository: vantage/streamer
     tag: dev
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "16Mi"
+    limits:
+      cpu: "100m"
+      memory: "64Mi"
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
 
 collector:
   enabled: true
@@ -22,6 +68,29 @@ collector:
     repository: vantage/collector
     tag: dev
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "16Mi"
+    limits:
+      cpu: "100m"
+      memory: "64Mi"
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
 
 gateway:
   enabled: true
@@ -29,6 +98,34 @@ gateway:
     repository: vantage/gateway
     tag: dev
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "32Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
 
 postgresql:
   enabled: true

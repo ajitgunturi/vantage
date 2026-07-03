@@ -5,9 +5,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -16,6 +17,52 @@ import (
 
 	"github.com/ajitg/vantage/pkg/pb"
 )
+
+// Runner holds streamer runtime state including atomic readiness. It wraps the
+// dial+Stream orchestration that was previously in the package-level Run function.
+// Use NewRunner to construct; call Run to start streaming.
+type Runner struct {
+	cfg   Config
+	ready atomic.Bool
+}
+
+// NewRunner creates a new Runner with the given config. The runner is not ready
+// until Run has successfully dialed the MQ and entered the streaming loop.
+func NewRunner(cfg Config) *Runner {
+	return &Runner{cfg: cfg}
+}
+
+// IsReady reports whether the runner has dialed the MQ and begun streaming.
+// Returns false on a freshly created Runner; transitions to true once Run
+// has successfully connected to the MQ and is entering the CSV streaming loop.
+// Safe to call from any goroutine (backed by atomic.Bool).
+func (r *Runner) IsReady() bool {
+	return r.ready.Load()
+}
+
+// Run validates the config, dials the MQ, marks readiness, and streams the CSV
+// in an infinite loop until ctx is cancelled.
+//
+// Readiness semantics: IsReady() flips to true once the MQ connection is
+// established and Stream is about to enter the loop — signalling that the
+// pod is genuinely producing telemetry (OBS-01).
+//
+// Returns context.Canceled on clean shutdown.
+// Returns a non-nil error if CSVPath is empty or if the CSV cannot be opened.
+func (r *Runner) Run(ctx context.Context) error {
+	if r.cfg.CSVPath == "" {
+		return fmt.Errorf("streamer: CSVPath is required (set STREAMER_CSV_PATH)")
+	}
+	conn, err := dialMQ(r.cfg.MQAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close() //nolint:errcheck
+	client := pb.NewMQServiceClient(conn)
+	// Mark ready: MQ is dialed and we are entering the streaming loop.
+	r.ready.Store(true)
+	return Stream(ctx, client, r.cfg.CSVPath, r.cfg.LoopDelayMS, false)
+}
 
 // dialMQ dials the MQ gRPC server with insecure transport and keepalive
 // parameters matching the MQ server's enforcement policy (MinTime=15s):
@@ -113,7 +160,7 @@ func produceWithRetry(ctx context.Context, client pb.MQServiceClient, msg *pb.Te
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		log.Printf("streamer: produce failed (retrying in %v): %v", backoff, err)
+		slog.Warn("produce failed, retrying", "backoff", backoff, "error", err)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -152,12 +199,12 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 			if err != nil {
 				// Malformed row (wrong column count or parse error) — skip and log.
 				// csv.ParseError with Err=csv.ErrFieldCount is the common case here.
-				log.Printf("streamer: skip malformed row: %v", err)
+				slog.Warn("skip malformed row", "error", err)
 				continue
 			}
 			msg, err := recordToProto(record)
 			if err != nil {
-				log.Printf("streamer: skip bad record: %v", err)
+				slog.Warn("skip bad record", "error", err)
 				continue
 			}
 			// produceWithRetry retries on transient MQ failures so a single blip
@@ -180,21 +227,8 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 	}
 }
 
-// Run validates the config, dials the MQ, and streams the CSV in an infinite
-// loop until ctx is cancelled. It wraps Stream with config validation and
-// connection lifecycle management.
-//
-// Returns context.Canceled on clean shutdown.
-// Returns a non-nil error if CSVPath is empty or if the CSV cannot be opened.
+// Run is a backward-compatible wrapper that constructs a Runner and calls Run.
+// Existing call sites (cmd/streamer, tests) continue to work without changes.
 func Run(ctx context.Context, cfg Config) error {
-	if cfg.CSVPath == "" {
-		return fmt.Errorf("streamer: CSVPath is required (set STREAMER_CSV_PATH)")
-	}
-	conn, err := dialMQ(cfg.MQAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close() //nolint:errcheck
-	client := pb.NewMQServiceClient(conn)
-	return Stream(ctx, client, cfg.CSVPath, cfg.LoopDelayMS, false)
+	return NewRunner(cfg).Run(ctx)
 }
