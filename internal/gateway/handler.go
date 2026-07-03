@@ -36,6 +36,21 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+// TelemetryPage is the paginated response envelope for GET /api/v1/gpus/{id}/telemetry.
+// Data holds the metric rows for the current page; Pagination carries cursor metadata.
+type TelemetryPage struct {
+	Data       []GpuMetricResponse `json:"data"`
+	Pagination PaginationMeta      `json:"pagination"`
+}
+
+// PaginationMeta carries the limit/offset applied to the query and a sentinel
+// indicating whether another page exists (API-05, RESEARCH Pitfall 5 — off-by-one).
+type PaginationMeta struct {
+	Limit   int  `json:"limit"`
+	Offset  int  `json:"offset"`
+	HasNext bool `json:"has_next"`
+}
+
 // writeJSON sets Content-Type to application/json and encodes v into w.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -53,17 +68,16 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // @Summary     Get GPU telemetry
 // @Description Returns time-series metric rows for a GPU ordered newest-first (API-02).
 // @Description Optional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).
-// @Description Result is capped at VANTAGE_GATEWAY_MAX_ROWS rows (OQ-1).
-// @Description When the result is capped, X-Truncated: true and X-Row-Limit: <n> headers are set (M-4).
+// @Description Use limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).
 // @Tags        gpus
 // @Produce     json
 // @Param       id         path     string  true  "GPU UUID"
 // @Param       start_time query    string  false "Inclusive lower bound (RFC3339); omit for unbounded"
 // @Param       end_time   query    string  false "Inclusive upper bound (RFC3339); omit for unbounded"
-// @Success     200  {array}   GpuMetricResponse
-// @Header      200  {string}  X-Truncated  "true when the result was capped at X-Row-Limit rows"
-// @Header      200  {string}  X-Row-Limit  "Maximum rows returned (VANTAGE_GATEWAY_MAX_ROWS)"
-// @Failure     400  {object}  ErrorResponse  "malformed start_time or end_time"
+// @Param       limit      query    int     false "Max rows to return (default/ceiling: VANTAGE_GATEWAY_MAX_ROWS)" minimum(1)
+// @Param       offset     query    int     false "Row offset for pagination (default: 0)" minimum(0)
+// @Success     200  {object}  TelemetryPage
+// @Failure     400  {object}  ErrorResponse  "malformed start_time, end_time, limit, or offset"
 // @Failure     404  {object}  ErrorResponse  "gpu_id not found"
 // @Failure     500  {object}  ErrorResponse
 // @Router      /gpus/{id}/telemetry [get]
@@ -93,6 +107,31 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 			end = &t
 		}
 
+		// Parse pagination params: limit (default maxRows, ceiling maxRows, ≥1)
+		// and offset (default 0, ≥0). Both are validated before pool access so
+		// that unit tests with a nil pool exercise the 400 path (T-06-03/T-06-04).
+		limit := maxRows
+		if v := r.URL.Query().Get("limit"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+				return
+			}
+			if n > maxRows {
+				n = maxRows
+			}
+			limit = n
+		}
+		offset := 0
+		if v := r.URL.Query().Get("offset"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				writeError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+				return
+			}
+			offset = n
+		}
+
 		// Nil pool guard — returns application/json 500 instead of panicking
 		// through chi Recoverer (which would emit text/plain), preserving the
 		// Content-Type contract in unit tests that pass nil pool.
@@ -118,20 +157,19 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 			return
 		}
 
-		// Fetch telemetry capped at maxRows (OQ-1 / T-04-05).
-		metrics, err := db.Telemetry(dbCtx, pool, id, start, end, maxRows)
+		// Fetch limit+1 rows to detect has_next without a COUNT query (API-05,
+		// RESEARCH Pitfall 5). limit and offset are pgx $N placeholders (T-06-03).
+		metrics, err := db.Telemetry(dbCtx, pool, id, start, end, limit+1, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to fetch telemetry")
 			return
 		}
 
-		// Signal truncation BEFORE writing the body (headers must be set before
-		// WriteHeader/Write or they are dropped — M-4 silent-truncation fix).
-		// X-Truncated: true  — result was capped; caller should narrow the window
-		// X-Row-Limit: <n>   — the cap that was applied
-		if len(metrics) == maxRows {
-			w.Header().Set("X-Truncated", "true")
-			w.Header().Set("X-Row-Limit", strconv.Itoa(maxRows))
+		// has_next is true when the extra sentinel row was returned.
+		// Trim back to limit rows before mapping to the response DTO.
+		hasNext := len(metrics) > limit
+		if hasNext {
+			metrics = metrics[:limit]
 		}
 
 		// Map domain structs to HTTP response DTOs (RESEARCH Pattern 6: JSON tags
@@ -152,7 +190,10 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 				LabelsRaw:  m.LabelsRaw,
 			})
 		}
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, http.StatusOK, TelemetryPage{
+			Data:       resp,
+			Pagination: PaginationMeta{Limit: limit, Offset: offset, HasNext: hasNext},
+		})
 	}
 }
 

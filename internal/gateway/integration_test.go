@@ -343,8 +343,8 @@ func TestGetTelemetry_UnknownGPU(t *testing.T) {
 }
 
 // TestGetTelemetry_KnownGPUEmptyWindow asserts OQ-2: a known gpu_id with no
-// rows matching the requested time window returns 200 with an empty array []
-// (not 404, not null).
+// rows matching the requested time window returns 200 with an empty data array
+// in the TelemetryPage envelope (not 404, not null).
 func TestGetTelemetry_KnownGPUEmptyWindow(t *testing.T) {
 	ctx := context.Background()
 	t.Cleanup(func() { restoreDB(ctx, t) })
@@ -373,13 +373,10 @@ func TestGetTelemetry_KnownGPUEmptyWindow(t *testing.T) {
 		"known GPU with empty window must return 200 (not 404)")
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 
-	// Capture body before decoding — json.Decoder advances the buffer.
-	body := w.Body.String()
-	var rows []gateway.GpuMetricResponse
-	require.NoError(t, json.Unmarshal([]byte(body), &rows),
-		"empty-window body must be valid JSON")
-	assert.Len(t, rows, 0, "empty window must return [] (not null)")
-	assert.JSONEq(t, "[]", body, "empty-window body must be exactly []")
+	// Decode the TelemetryPage envelope — Data must be empty, has_next false.
+	page := decodePage(t, w)
+	assert.Len(t, page.Data, 0, "empty window must return data:[] (not null)")
+	assert.False(t, page.Pagination.HasNext, "empty window must have has_next:false")
 }
 
 // TestGetTelemetry_BadTime asserts OQ-4: a malformed start_time parameter
