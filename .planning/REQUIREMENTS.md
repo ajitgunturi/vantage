@@ -76,7 +76,7 @@
 - [x] **QA-03**: Integration tests (end-to-end CSV→MQ→Collector→Postgres; gateway against a seeded DB)
 - [x] **QA-04**: ≥90% line coverage enforced via the Makefile coverage gate
 - [ ] **QA-05**: Crash-recovery test — after a simulated broker restart in WAL mode, no un-consumed message is lost (replay verified)
-- [ ] **QA-07**: GitHub Actions CI runs `make build`, `make test` (-race), `make coverage` (≥90% gate), and `make lint` on every push and pull request — the Makefile stays the single source of truth for gates
+- [x] **QA-07**: GitHub Actions CI runs `make build`, `make test` (-race), `make coverage` (≥90% gate), and `make lint` on every push and pull request — the Makefile stays the single source of truth for gates
 
 ### Observability (OBS)
 
@@ -172,7 +172,7 @@ Final mapping against ROADMAP.md (5 phases). Every v1 requirement maps to exactl
 | OPS-08 | Phase 6 | Complete |
 | OPS-09 | Phase 6 | Complete |
 | API-05 | Phase 6 | Complete |
-| QA-07 | Phase 6 | Pending |
+| QA-07 | Phase 6 | Complete |
 | DUR-01 | Phase 7 | Pending |
 | DUR-02 | Phase 7 | Pending |
 | QA-05 | Phase 7 | Pending |
