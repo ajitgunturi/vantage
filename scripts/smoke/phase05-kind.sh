@@ -93,9 +93,11 @@ HTTP_CODE=$(curl -s -o /tmp/smoke05_telem.json -w "%{http_code}" \
 [ "$HTTP_CODE" = "200" ] || fail "GET telemetry: expected 200, got $HTTP_CODE"
 python3 -c "
 import json
-data = json.load(open('/tmp/smoke05_telem.json'))
-assert isinstance(data, list) and len(data) > 0, 'telemetry array empty'
-" || fail "telemetry response is not a non-empty JSON array"
+page = json.load(open('/tmp/smoke05_telem.json'))
+assert isinstance(page, dict) and isinstance(page.get('data'), list), 'expected TelemetryPage envelope'
+assert len(page['data']) > 0, 'telemetry data array empty'
+assert isinstance(page.get('pagination'), dict), 'missing pagination metadata'
+" || fail "telemetry response is not a non-empty TelemetryPage envelope"
 pass "GET /api/v1/gpus/${GPU_ID}/telemetry → 200 + rows"
 
 # ── Step 7: OPS-03 — targeted upgrade rolls ONLY the mq Deployment ───────────

@@ -97,24 +97,35 @@ func TestHarness(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /api/v1/gpus/%s/telemetry must return 200", gpuID)
 
+	// telemetryPage mirrors the gateway's TelemetryPage envelope (Phase 6, API-05).
+	type telemetryPage struct {
+		Data       []map[string]any `json:"data"`
+		Pagination struct {
+			Limit   int  `json:"limit"`
+			Offset  int  `json:"offset"`
+			HasNext bool `json:"has_next"`
+		} `json:"pagination"`
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err, "read telemetry body")
-	var rows []map[string]any
-	require.NoError(t, json.Unmarshal(body, &rows), "telemetry must be a JSON array")
-	require.NotEmpty(t, rows, "telemetry for %s must contain rows", gpuID)
+	var page telemetryPage
+	require.NoError(t, json.Unmarshal(body, &page), "telemetry must be a TelemetryPage envelope")
+	require.NotEmpty(t, page.Data, "telemetry for %s must contain rows", gpuID)
 
 	// Row-count growth (D-19): a second sample a moment later must be >= the
 	// first — the streamer loops forever, so the pipeline keeps flowing.
-	firstCount := len(rows)
+	// (Both samples cap at the gateway row limit, so >= still holds at saturation.)
+	firstCount := len(page.Data)
 	time.Sleep(3 * time.Second)
 	resp2, err := http.Get(fmt.Sprintf("%s/api/v1/gpus/%s/telemetry", base, url.PathEscape(gpuID)))
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 	body2, err := io.ReadAll(resp2.Body)
 	require.NoError(t, err)
-	var rows2 []map[string]any
-	require.NoError(t, json.Unmarshal(body2, &rows2))
-	require.GreaterOrEqual(t, len(rows2), firstCount,
+	var page2 telemetryPage
+	require.NoError(t, json.Unmarshal(body2, &page2))
+	require.GreaterOrEqual(t, len(page2.Data), firstCount,
 		"telemetry row count must not shrink while the pipeline runs")
 }
 

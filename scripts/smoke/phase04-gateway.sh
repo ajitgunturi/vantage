@@ -5,7 +5,8 @@
 # handles API requests against a running Postgres dev stack:
 #
 #   1. GET /api/v1/gpus          → 200 + JSON array
-#   2. GET /api/v1/gpus/<id>/telemetry → 200 + JSON array (known GPU)
+#   2. GET /api/v1/gpus/<id>/telemetry → 200 + TelemetryPage envelope (known GPU)
+#      (+ ?limit=&offset= pagination honored — Phase 6, API-05)
 #   3. GET /api/v1/gpus/GPU-does-not-exist/telemetry → 404 (unknown GPU)
 #   4. GET /swagger/doc.json     → 200 + valid JSON spec
 #
@@ -121,16 +122,34 @@ assert isinstance(data, list), f'Expected array, got {type(data)}'
 " || fail "GET /api/v1/gpus: response is not a JSON array"
 pass "GET /api/v1/gpus → 200 + JSON array"
 
-# ── Step 9: assert GET /api/v1/gpus/<id>/telemetry → 200 + array ─────────────
+# ── Step 9: assert GET /api/v1/gpus/<id>/telemetry → 200 + TelemetryPage ─────
 HTTP_CODE=$(curl -s -o /tmp/smoke04_telem.json -w "%{http_code}" \
   "http://${GATEWAY_HOST}/api/v1/gpus/${SEED_GPU}/telemetry")
 [ "$HTTP_CODE" = "200" ] || fail "GET /api/v1/gpus/${SEED_GPU}/telemetry: expected 200, got $HTTP_CODE"
 python3 -c "
 import json, sys
-data = json.load(open('/tmp/smoke04_telem.json'))
-assert isinstance(data, list), f'Expected array, got {type(data)}'
-" || fail "GET /api/v1/gpus/${SEED_GPU}/telemetry: response is not a JSON array"
-pass "GET /api/v1/gpus/${SEED_GPU}/telemetry → 200 + JSON array"
+page = json.load(open('/tmp/smoke04_telem.json'))
+assert isinstance(page, dict), f'Expected TelemetryPage object, got {type(page)}'
+assert isinstance(page.get('data'), list), f\"Expected data array, got {type(page.get('data'))}\"
+p = page.get('pagination')
+assert isinstance(p, dict), f'Expected pagination metadata, got {type(p)}'
+for key in ('limit', 'offset', 'has_next'):
+    assert key in p, f'pagination missing {key!r}: {sorted(p)}'
+" || fail "GET /api/v1/gpus/${SEED_GPU}/telemetry: response is not a TelemetryPage envelope"
+pass "GET /api/v1/gpus/${SEED_GPU}/telemetry → 200 + TelemetryPage envelope"
+
+# ── Step 9b: assert ?limit=5&offset=0 honors the page size ───────────────────
+HTTP_CODE=$(curl -s -o /tmp/smoke04_page.json -w "%{http_code}" \
+  "http://${GATEWAY_HOST}/api/v1/gpus/${SEED_GPU}/telemetry?limit=5&offset=0")
+[ "$HTTP_CODE" = "200" ] || fail "GET .../telemetry?limit=5&offset=0: expected 200, got $HTTP_CODE"
+python3 -c "
+import json, sys
+page = json.load(open('/tmp/smoke04_page.json'))
+data, p = page['data'], page['pagination']
+assert len(data) <= 5, f'limit=5 returned {len(data)} rows'
+assert p['limit'] == 5 and p['offset'] == 0, f'echoed pagination wrong: {p}'
+" || fail "pagination: limit=5 not honored or metadata not echoed"
+pass "GET .../telemetry?limit=5&offset=0 → ≤5 rows + echoed pagination metadata"
 
 # ── Step 10: assert unknown GPU returns 404 ───────────────────────────────────
 HTTP_CODE=$(curl -s -o /tmp/smoke04_404.json -w "%{http_code}" \
