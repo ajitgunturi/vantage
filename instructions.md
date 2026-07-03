@@ -21,8 +21,9 @@ Crucially, the architecture must be structured as **strictly independent microse
   from-scratch constraints are unchanged. See
   `docs/adr/ADR-001-bidi-at-least-once-delivery.md`.
 - **[Pre-existing] Opt-in WAL persistence backend** behind the `Store` interface
-  (in-memory remains the default) adds crash durability in Phase 6 — a documented
-  extension of the in-memory-only baseline. See `.planning/PROJECT.md` Key Decisions.
+  (in-memory remains the default) — deferred post-v1 by owner directive 2026-07-03
+  (renumbered Phase 7); interface seam shipped, backend not built. See
+  `docs/adr/ADR-009-opt-in-wal-extension.md` and `docs/FUTURE.md`.
 
 ---
 

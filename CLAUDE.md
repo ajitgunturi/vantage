@@ -80,8 +80,9 @@ make kind-up / helm-install / kind-down   # local k8s lifecycle
   **No third-party brokers** (Kafka/NATS/Rabbit/Redis/etc.). **No clustering.** MQ runs as a
   **single-replica** Deployment. Storage sits behind a `Store` interface: **in-memory is the
   default**; an **opt-in WAL persistence backend** (batched group-commit fsync + replay-on-restart,
-  at-least-once) adds crash durability without changing the default — built in Phase 6. (This is a
-  deliberate, documented extension of the brief's in-memory-only baseline; see PROJECT.md Key Decisions.)
+  at-least-once) adds crash durability without changing the default — deferred post-v1 by owner
+  directive 2026-07-03 (renumbered Phase 7); interface seam shipped, backend not built. See
+  `docs/adr/ADR-009-opt-in-wal-extension.md` and `docs/FUTURE.md`.
 - MQ delivery is **decoupled and thread-safe**; multiple Collectors receive **unique** messages in
   steady state (no leaks). As of Phase 01.1 delivery is **broker-side at-least-once** (ADR-001):
   bidi `Consume` with per-message ack + client-driven credit; unacked in-flight messages are
