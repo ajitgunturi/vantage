@@ -82,3 +82,22 @@ func TestFromEnvPartialOverride(t *testing.T) {
 	require.Equal(t, 500, cfg.FlushMS, "unset FLUSH_MS must keep default")
 	require.Equal(t, 100, cfg.Credit, "unset CREDIT must keep default")
 }
+
+// TestConfig_HealthAddrDefault verifies that FromEnv returns ":9001" for HealthAddr
+// when COLLECTOR_HEALTH_ADDR is not set. This is the TDD RED gate for the
+// HealthAddr field introduced in Plan 06-05.
+func TestConfig_HealthAddrDefault(t *testing.T) {
+	t.Setenv("COLLECTOR_HEALTH_ADDR", "")
+	cfg := collector.FromEnv()
+	require.Equal(t, ":9001", cfg.HealthAddr,
+		"default HealthAddr must be :9001 when COLLECTOR_HEALTH_ADDR is unset")
+}
+
+// TestConfig_HealthAddrOverride verifies that COLLECTOR_HEALTH_ADDR overrides
+// the default HealthAddr when set to a non-empty value.
+func TestConfig_HealthAddrOverride(t *testing.T) {
+	t.Setenv("COLLECTOR_HEALTH_ADDR", ":9099")
+	cfg := collector.FromEnv()
+	require.Equal(t, ":9099", cfg.HealthAddr,
+		"COLLECTOR_HEALTH_ADDR must override the default :9001")
+}

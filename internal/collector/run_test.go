@@ -16,6 +16,16 @@ import (
 	"github.com/ajitg/vantage/pkg/pb"
 )
 
+// TestRunner_NotReadyBeforeStart verifies that a freshly created Runner reports
+// IsReady() == false before Run is called. This is the TDD RED gate for the
+// Runner struct introduced in Plan 06-05.
+func TestRunner_NotReadyBeforeStart(t *testing.T) {
+	cfg := collector.Config{MQAddr: ":50051", BatchSize: 50, FlushMS: 500, Credit: 100}
+	// nil pool: pool is never accessed before the stream is established
+	runner := collector.NewRunner(cfg, nil)
+	require.False(t, runner.IsReady(), "runner must not be ready before Run is called")
+}
+
 // TestRunPreCanceledContext verifies that collector.Run returns immediately with
 // context.Canceled when the context is already canceled before the first loop
 // iteration. The pool may be nil because Run never reaches dialMQ when ctx is

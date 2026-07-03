@@ -125,7 +125,7 @@ func TestTelemetry_NoFilter(t *testing.T) {
 	seedFull(t, gpuID, base.Add(1*time.Second))
 	seedFull(t, gpuID, base.Add(2*time.Second))
 
-	rows, err := db.Telemetry(ctx, testPool, gpuID, nil, nil, 100)
+	rows, err := db.Telemetry(ctx, testPool, gpuID, nil, nil, 100, 0)
 	require.NoError(t, err)
 	require.Len(t, rows, 3, "must return all 3 rows")
 
@@ -155,7 +155,7 @@ func TestTelemetry_WindowFilter(t *testing.T) {
 	seedFull(t, gpuID, t3)
 	seedFull(t, gpuID, t4)
 
-	rows, err := db.Telemetry(ctx, testPool, gpuID, &t2, &t3, 100)
+	rows, err := db.Telemetry(ctx, testPool, gpuID, &t2, &t3, 100, 0)
 	require.NoError(t, err)
 	require.Len(t, rows, 2, "window [t2,t3] must return exactly 2 rows")
 }
@@ -172,7 +172,7 @@ func TestTelemetry_EmptyResult(t *testing.T) {
 	futureStart := time.Now().UTC().Add(24 * time.Hour)
 	futureEnd := time.Now().UTC().Add(48 * time.Hour)
 
-	rows, err := db.Telemetry(ctx, testPool, gpuID, &futureStart, &futureEnd, 100)
+	rows, err := db.Telemetry(ctx, testPool, gpuID, &futureStart, &futureEnd, 100, 0)
 	require.NoError(t, err)
 	require.NotNil(t, rows, "empty result must be non-nil (encodes as [] not null)")
 	assert.Len(t, rows, 0)
@@ -190,7 +190,7 @@ func TestTelemetry_Limit(t *testing.T) {
 		seedFull(t, gpuID, base.Add(time.Duration(i)*time.Second))
 	}
 
-	rows, err := db.Telemetry(ctx, testPool, gpuID, nil, nil, 3)
+	rows, err := db.Telemetry(ctx, testPool, gpuID, nil, nil, 3, 0)
 	require.NoError(t, err)
 	assert.Len(t, rows, 3, "result must be capped at limit=3")
 }
@@ -246,6 +246,6 @@ func TestTelemetry_UsesCompositeIndex(t *testing.T) {
 		"expected Index Scan on composite index; full plan:\n%s", planStr)
 
 	// Also call db.Telemetry to confirm the function exists (RED compile gate).
-	_, err = db.Telemetry(ctx, testPool, targetGPU, &startT, &endT, 10)
+	_, err = db.Telemetry(ctx, testPool, targetGPU, &startT, &endT, 10, 0)
 	require.NoError(t, err, "db.Telemetry must succeed on a seeded GPU")
 }
