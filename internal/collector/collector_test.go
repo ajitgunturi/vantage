@@ -86,12 +86,12 @@ func (f *fakeConsumeStream) acksSent() int {
 }
 
 // grpc.ClientStream interface — no-ops for test purposes.
-func (f *fakeConsumeStream) Header() (metadata.MD, error)  { return nil, nil }
-func (f *fakeConsumeStream) Trailer() metadata.MD          { return nil }
-func (f *fakeConsumeStream) CloseSend() error              { return nil }
-func (f *fakeConsumeStream) Context() context.Context      { return f.ctx }
-func (f *fakeConsumeStream) SendMsg(_ any) error           { return nil }
-func (f *fakeConsumeStream) RecvMsg(_ any) error           { return nil }
+func (f *fakeConsumeStream) Header() (metadata.MD, error) { return nil, nil }
+func (f *fakeConsumeStream) Trailer() metadata.MD         { return nil }
+func (f *fakeConsumeStream) CloseSend() error             { return nil }
+func (f *fakeConsumeStream) Context() context.Context     { return f.ctx }
+func (f *fakeConsumeStream) SendMsg(_ any) error          { return nil }
+func (f *fakeConsumeStream) RecvMsg(_ any) error          { return nil }
 
 // fakeMQClient is a pb.MQServiceClient that returns a fakeConsumeStream.
 type fakeMQClient struct {
@@ -175,7 +175,7 @@ func newBufconnMQ(t *testing.T) (*grpc.ClientConn, *server.MQServer) {
 	t.Helper()
 
 	lis := bufconn.Listen(bufConnSize)
-	mqSrv := server.NewMQServer(queue.NewRingStore(5000), 200)
+	mqSrv := server.NewMQServer(queue.NewBroker(queue.BrokerConfig{Capacity: 5000}), 200)
 	s := grpc.NewServer()
 	pb.RegisterMQServiceServer(s, mqSrv)
 	t.Cleanup(func() {
@@ -313,8 +313,8 @@ func TestIdempotentUpsert(t *testing.T) {
 		Uuid:       "GPU-dup-0000-0000-0000-000000000000", // same uuid → same gpu_id in DB
 		GpuId:      "0",
 		MetricName: "DCGM_FI_DEV_GPU_UTIL", // same metric_name
-		Timestamp:  ts,                       // same timestamp → duplicate natural key
-		Value:      99.0,                     // different value, but key already conflicts
+		Timestamp:  ts,                     // same timestamp → duplicate natural key
+		Value:      99.0,                   // different value, but key already conflicts
 		Device:     "nvidia0",
 		ModelName:  "NVIDIA H100",
 		Hostname:   "test-host",
@@ -508,8 +508,8 @@ func TestTickerFlushError(t *testing.T) {
 	fakeClient := &fakeMQClient{stream: fStream}
 
 	cfg := collector.Config{
-		BatchSize: 10,  // > nMsgs: size-trigger never fires
-		FlushMS:   50,  // 50ms ticker fires quickly for test speed
+		BatchSize: 10, // > nMsgs: size-trigger never fires
+		FlushMS:   50, // 50ms ticker fires quickly for test speed
 		Credit:    20,
 	}
 
@@ -534,7 +534,7 @@ func TestReconnect(t *testing.T) {
 	require.NoError(t, err)
 	addr := lis1.Addr().String()
 
-	mqSrv1 := server.NewMQServer(queue.NewRingStore(5000), 200)
+	mqSrv1 := server.NewMQServer(queue.NewBroker(queue.BrokerConfig{Capacity: 5000}), 200)
 	grpcSrv1 := grpc.NewServer()
 	pb.RegisterMQServiceServer(grpcSrv1, mqSrv1)
 	go grpcSrv1.Serve(lis1) //nolint:errcheck
@@ -582,7 +582,7 @@ func TestReconnect(t *testing.T) {
 	// Start a fresh MQ server on the same address.
 	lis2, err := net.Listen("tcp", addr)
 	require.NoError(t, err)
-	mqSrv2 := server.NewMQServer(queue.NewRingStore(5000), 200)
+	mqSrv2 := server.NewMQServer(queue.NewBroker(queue.BrokerConfig{Capacity: 5000}), 200)
 	grpcSrv2 := grpc.NewServer()
 	pb.RegisterMQServiceServer(grpcSrv2, mqSrv2)
 	go grpcSrv2.Serve(lis2) //nolint:errcheck
@@ -614,4 +614,113 @@ func TestReconnect(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Error("collector.Run did not exit within 10s after context cancel")
 	}
+}
+
+// TestPoisonRowBisectDeadLetter covers poison isolation end-to-end: a batch containing one
+// row that deterministically fails at exec time (CHECK violation) must NOT
+// wedge the pipeline. The bisect isolates the poison row into gpu_metrics_dlq,
+// every good row lands, and ALL messages (including the poison one) are acked
+// so the broker never redelivers the batch.
+func TestPoisonRowBisectDeadLetter(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	// Fabricate deterministic DB-level poison: any row with value = 4242 fails
+	// exec with SQLSTATE 23514. Snapshot restore removes the constraint.
+	// Retry: a previous test's snapshot Restore terminates pooled connections
+	// (57P01); the first statements may land on stale conns until evicted.
+	var err error
+	for i := 0; i < 3; i++ {
+		_, err = testPool.Exec(ctx,
+			"ALTER TABLE gpu_metrics ADD CONSTRAINT poison_test_check CHECK (value <> 4242)")
+		if err == nil {
+			break
+		}
+	}
+	require.NoError(t, err)
+
+	conn, mqSrv := newBufconnMQ(t)
+	client := pb.NewMQServiceClient(conn)
+
+	// 5 messages; index 2 is poison (value=4242).
+	base := time.Now().UTC()
+	for i := 0; i < 5; i++ {
+		val := float64(i)
+		if i == 2 {
+			val = 4242
+		}
+		msg := &pb.TelemetryMessage{
+			Uuid:       "GPU-a3a3-0000-0000-0000-000000000000",
+			GpuId:      "0",
+			MetricName: "DCGM_FI_DEV_GPU_UTIL",
+			Timestamp:  base.Add(time.Duration(i) * time.Microsecond).Format(time.RFC3339Nano),
+			Value:      val,
+		}
+		_, err := client.Produce(ctx, &pb.ProduceRequest{Message: msg})
+		require.NoError(t, err)
+	}
+
+	cfg := collector.Config{BatchSize: 5, FlushMS: 200, Credit: 20}
+	consumeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cerr := collector.Consume(consumeCtx, client, testPool, cfg)
+	if cerr != nil && cerr != context.DeadlineExceeded {
+		t.Logf("Consume returned: %v", cerr)
+	}
+
+	// The 4 good rows landed; the poison row did not.
+	require.Equal(t, 4, rowCount(t), "good rows must land despite the poison row (bisect isolation)")
+
+	// The poison row is preserved in gpu_metrics_dlq with its failure reason.
+	var dlqCount int
+	var dlqErr string
+	var brokerID int64
+	require.NoError(t, testPool.QueryRow(ctx,
+		"SELECT count(*) FROM gpu_metrics_dlq").Scan(&dlqCount))
+	require.Equal(t, 1, dlqCount, "exactly the poison row must be dead-lettered")
+	require.NoError(t, testPool.QueryRow(ctx,
+		"SELECT broker_id, error FROM gpu_metrics_dlq").Scan(&brokerID, &dlqErr))
+	require.Contains(t, dlqErr, "23514", "DLQ row must record the SQLSTATE")
+	require.Greater(t, brokerID, int64(0), "DLQ row must carry the stable broker id")
+
+	// The payload is recoverable JSON with the poison value.
+	var payloadValue float64
+	require.NoError(t, testPool.QueryRow(ctx,
+		"SELECT (payload->>'value')::float8 FROM gpu_metrics_dlq").Scan(&payloadValue))
+	require.Equal(t, float64(4242), payloadValue)
+
+	// Every message was acked — the broker holds nothing back (no wedge).
+	require.Eventually(t, func() bool {
+		st := mqSrv.Stats()
+		return st.Consumed == 5 && st.InFlight == 0 && st.Depth+st.RetryDepth == 0
+	}, 5*time.Second, 20*time.Millisecond,
+		"all 5 messages acked (poison included) — pipeline must not wedge")
+}
+
+// TestTransientErrorNeverDeadLetters covers the poison-classifier guard: a transient failure
+// (here: cancelled context — not SQLSTATE class 22/23) must propagate so the
+// batch stays unacked for redelivery, and put NOTHING in gpu_metrics_dlq.
+func TestTransientErrorNeverDeadLetters(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	msgs := []*pb.TelemetryMessage{{
+		Uuid:       "GPU-57xx-0000-0000-0000-000000000000",
+		GpuId:      "0",
+		MetricName: "DCGM_FI_DEV_GPU_UTIL",
+		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
+		Value:      1,
+		Id:         1,
+	}}
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	n, perr := collector.PersistResilientForTest(cancelled, testPool, msgs)
+	require.Error(t, perr, "transient (non-poison) failure must propagate")
+	require.Equal(t, 0, n, "nothing may be dead-lettered on a transient failure")
+
+	var dlqCount int
+	require.NoError(t, testPool.QueryRow(ctx,
+		"SELECT count(*) FROM gpu_metrics_dlq").Scan(&dlqCount))
+	require.Equal(t, 0, dlqCount, "transient failures must never dead-letter")
 }

@@ -45,12 +45,17 @@ type TelemetryMessage struct {
 	Namespace  string  `protobuf:"bytes,10,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Value      float64 `protobuf:"fixed64,11,opt,name=value,proto3" json:"value,omitempty"`                        // metric value (GPU utilization %, memory bytes, etc.)
 	LabelsRaw  string  `protobuf:"bytes,12,opt,name=labels_raw,json=labelsRaw,proto3" json:"labels_raw,omitempty"` // raw Prometheus label string
-	// Broker-assigned monotonic delivery ID (D-06, ADR-001).
-	// Set by MQServer on dequeue; zero from Streamer (ignored by broker; overwritten on assign).
+	// Broker-assigned monotonic message ID (D-06, ADR-001).
+	// Assigned ONCE at Enqueue; a message keeps this id across redeliveries, so
+	// consumers can dedup by id. Zero from Streamer (overwritten on assign).
 	// Field 13 keeps 1-byte encoding (fields 1-15 use varint tag with 1 byte; 16+ use 2 bytes).
-	Id            uint64 `protobuf:"varint,13,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Id uint64 `protobuf:"varint,13,opt,name=id,proto3" json:"id,omitempty"`
+	// Number of times the broker has leased (delivered) this message, including
+	// the current delivery — 1 on first delivery, >1 on redelivery. Input
+	// to max-delivery DLQ routing. Zero from Streamer (overwritten on lease).
+	DeliveryAttempts uint32 `protobuf:"varint,14,opt,name=delivery_attempts,json=deliveryAttempts,proto3" json:"delivery_attempts,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TelemetryMessage) Reset() {
@@ -170,6 +175,13 @@ func (x *TelemetryMessage) GetLabelsRaw() string {
 func (x *TelemetryMessage) GetId() uint64 {
 	if x != nil {
 		return x.Id
+	}
+	return 0
+}
+
+func (x *TelemetryMessage) GetDeliveryAttempts() uint32 {
+	if x != nil {
+		return x.DeliveryAttempts
 	}
 	return 0
 }
@@ -342,7 +354,7 @@ var File_mq_proto protoreflect.FileDescriptor
 
 const file_mq_proto_rawDesc = "" +
 	"\n" +
-	"\bmq.proto\x12\x05mq.v1\"\xe2\x02\n" +
+	"\bmq.proto\x12\x05mq.v1\"\x8f\x03\n" +
 	"\x10TelemetryMessage\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\tR\ttimestamp\x12\x1f\n" +
 	"\vmetric_name\x18\x02 \x01(\tR\n" +
@@ -360,7 +372,8 @@ const file_mq_proto_rawDesc = "" +
 	"\x05value\x18\v \x01(\x01R\x05value\x12\x1d\n" +
 	"\n" +
 	"labels_raw\x18\f \x01(\tR\tlabelsRaw\x12\x0e\n" +
-	"\x02id\x18\r \x01(\x04R\x02id\"C\n" +
+	"\x02id\x18\r \x01(\x04R\x02id\x12+\n" +
+	"\x11delivery_attempts\x18\x0e \x01(\rR\x10deliveryAttempts\"C\n" +
 	"\x0eProduceRequest\x121\n" +
 	"\amessage\x18\x01 \x01(\v2\x17.mq.v1.TelemetryMessageR\amessage\"-\n" +
 	"\x0fProduceResponse\x12\x1a\n" +

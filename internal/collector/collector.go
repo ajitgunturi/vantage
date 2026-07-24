@@ -2,16 +2,20 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/ajitg/vantage/pkg/models"
 	"github.com/ajitg/vantage/pkg/pb"
@@ -181,6 +185,73 @@ func persistBatch(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryM
 	return nil
 }
 
+// isPoisonErr reports whether err is a deterministic row-level SQL failure
+// that will fail identically on every redelivery: SQLSTATE class 22 (data
+// exception — numeric overflow, bad cast, …) or 23 (integrity violation —
+// constraint/check failures). Everything else (connection loss, timeouts,
+// serialization, admin shutdown) is transient: it must propagate so the batch
+// stays unacked and is redelivered — NEVER dead-lettered.
+func isPoisonErr(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || len(pgErr.Code) < 2 {
+		return false
+	}
+	return strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")
+}
+
+// deadLetterRow preserves one isolated poison row in gpu_metrics_dlq with the
+// failure reason, so the caller can ack it and unwedge the pipeline.
+func deadLetterRow(ctx context.Context, pool *pgxpool.Pool, msg *pb.TelemetryMessage, cause error) error {
+	payload, err := protojson.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("collector: marshal dlq payload (id=%d): %w", msg.GetId(), err)
+	}
+	if _, err := pool.Exec(ctx, models.DLQInsertSQL,
+		int64(msg.GetId()), int32(msg.GetDeliveryAttempts()), payload, cause.Error()); err != nil {
+		return fmt.Errorf("collector: dead-letter insert (id=%d): %w", msg.GetId(), err)
+	}
+	slog.Error("row dead-lettered to gpu_metrics_dlq",
+		"id", msg.GetId(), "attempts", msg.GetDeliveryAttempts(), "cause", cause)
+	return nil
+}
+
+// persistResilient persists msgs with bisect-on-failure poison isolation.
+//
+// pgx v5 SendBatch runs a batch in ONE implicit transaction, so a single
+// deterministically-failing row aborts the whole batch — without isolation the
+// broker would redeliver the identical batch forever (pipeline wedge). On a
+// poison-class error (isPoisonErr) the batch is split in half and each half
+// retried in its own transaction, recursing down to the single failing row,
+// which is dead-lettered into gpu_metrics_dlq. Good rows land in O(log n)
+// round-trips; re-running halves that already landed is harmless because the
+// insert is an idempotent ON CONFLICT DO NOTHING upsert.
+//
+// Returns the number of rows dead-lettered. A transient error (or a failing
+// dead-letter insert) is returned as-is — the caller must NOT ack, so the
+// batch redelivers (at-least-once preserved).
+func persistResilient(ctx context.Context, pool *pgxpool.Pool, msgs []*pb.TelemetryMessage) (int, error) {
+	err := persistBatch(ctx, pool, msgs)
+	if err == nil {
+		return 0, nil
+	}
+	if !isPoisonErr(err) {
+		return 0, err
+	}
+	if len(msgs) == 1 {
+		if dlErr := deadLetterRow(ctx, pool, msgs[0], err); dlErr != nil {
+			return 0, dlErr
+		}
+		return 1, nil
+	}
+	mid := len(msgs) / 2
+	left, err := persistResilient(ctx, pool, msgs[:mid])
+	if err != nil {
+		return left, err
+	}
+	right, err := persistResilient(ctx, pool, msgs[mid:])
+	return left + right, err
+}
+
 // consumeStream is the internal implementation shared by Consume and Runner.Run.
 // markReady is an optional callback invoked with true after the MQ Consume stream
 // opens and with false (via defer) when it closes. Pass nil from Consume (no
@@ -261,17 +332,21 @@ func consumeStream(ctx context.Context, client pb.MQServiceClient, pool *pgxpool
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := persistBatch(ctx, pool, batch); err != nil {
-			// persistBatch failed — do NOT ack any message. The unacked messages
+		deadLettered, err := persistResilient(ctx, pool, batch)
+		if err != nil {
+			// Transient failure — do NOT ack any message. The unacked messages
 			// remain in the broker's lease table and are redelivered on disconnect
 			// (at-least-once, ADR-001). Returning the error causes Consume to exit
 			// and Run's reconnect loop to re-establish the stream (C-1 fix).
 			return err
 		}
-		// Ack every message in the batch, including any that persistBatch skipped
-		// due to bad proto (unparseable timestamp etc.). Acking poison messages is
-		// DELIBERATE: redelivering them forever would stall the pipeline. They are
-		// logged in persistBatch and do not land in the DB (T-03-03c).
+		if deadLettered > 0 {
+			slog.Warn("batch contained poison rows — isolated to gpu_metrics_dlq",
+				"dead_lettered", deadLettered, "batch", len(batch))
+		}
+		// Ack every message in the batch: persisted rows, parse-skipped rows
+		// (logged in persistBatch, T-03-03c), and dead-lettered poison rows —
+		// the DLQ insert IS the durable handling that makes the ack safe.
 		for _, m := range batch {
 			if err := stream.Send(&pb.ConsumeClientMsg{AckId: m.GetId()}); err != nil {
 				return fmt.Errorf("collector: send ack (id=%d): %w", m.GetId(), err)

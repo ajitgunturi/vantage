@@ -129,7 +129,7 @@ func TestMQ_Concurrent_UniqueDelivery(t *testing.T) {
 	const K = 3
 	const bufferSize = N * 2
 
-	s := queue.NewRingStore(bufferSize)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: bufferSize})
 	srv := server.NewMQServer(s, 64)
 	defer srv.Shutdown()
 
@@ -187,7 +187,7 @@ func TestMQ_AtLeastOnce_NoLoss(t *testing.T) {
 	const ackBeforeQuit = 20
 	const bufferSize = N * 2
 
-	s := queue.NewRingStore(bufferSize)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: bufferSize})
 	srv := server.NewMQServer(s, 16)
 	defer srv.Shutdown()
 
@@ -220,11 +220,11 @@ func TestMQ_AtLeastOnce_NoLoss(t *testing.T) {
 	cancel()                            // now disconnect — unacked leases requeue
 	wg.Wait()
 
-	// No loss: depth + acked == produced, and nothing is left in flight.
+	// No loss: queued (main + retry lane) + acked == produced, nothing in flight.
 	require.Eventually(t, func() bool {
 		st := srv.Stats()
-		return int64(st.Depth)+st.Consumed == int64(N) && st.InFlight == 0
-	}, 5*time.Second, 10*time.Millisecond, "no loss: depth + acked == produced, nothing left in flight")
+		return int64(st.Depth+st.RetryDepth)+st.Consumed == int64(N) && st.InFlight == 0
+	}, 5*time.Second, 10*time.Millisecond, "no loss: depth + retry + acked == produced, nothing left in flight")
 
 	st := srv.Stats()
 	require.Equal(t, int64(ackBeforeQuit), st.Consumed, "only the acked messages were consumed")
@@ -240,7 +240,7 @@ func TestMQ_NoOverPull(t *testing.T) {
 	const credit = 5
 	const bufferSize = N * 2
 
-	s := queue.NewRingStore(bufferSize)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: bufferSize})
 	srv := server.NewMQServer(s, credit)
 	defer srv.Shutdown()
 
@@ -288,7 +288,7 @@ func TestMQ_RedeliveryOnDisconnect(t *testing.T) {
 	const ackByA = 50
 	const bufferSize = N * 4
 
-	s := queue.NewRingStore(bufferSize)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: bufferSize})
 	srv := server.NewMQServer(s, 8)
 	defer srv.Shutdown()
 
@@ -354,7 +354,7 @@ func TestMQ_AckSafety(t *testing.T) {
 	const credit = 4
 	const bufferSize = N * 2
 
-	s := queue.NewRingStore(bufferSize)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: bufferSize})
 	srv := server.NewMQServer(s, credit)
 	defer srv.Shutdown()
 
@@ -396,7 +396,7 @@ func TestMQ_AckSafety(t *testing.T) {
 // TestMQServer_Produce_NilMessage verifies that Produce returns codes.InvalidArgument
 // when the request carries a nil TelemetryMessage (T-01-03-01 mitigation).
 func TestMQServer_Produce_NilMessage(t *testing.T) {
-	s := queue.NewRingStore(10)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 10})
 	srv := server.NewMQServer(s, 10)
 	defer srv.Shutdown()
 
@@ -411,7 +411,7 @@ func TestMQServer_Produce_NilMessage(t *testing.T) {
 // after a consumer acks a known number of messages.
 func TestMQServer_Stats(t *testing.T) {
 	const N = 50
-	s := queue.NewRingStore(N * 2)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: N * 2})
 	srv := server.NewMQServer(s, 16)
 	defer srv.Shutdown()
 
@@ -455,7 +455,7 @@ func TestMQServer_Stats(t *testing.T) {
 // returns promptly when its stream context is cancelled (the gRPC disconnect /
 // GracefulStop signal) and that Shutdown() is idempotent.
 func TestMQServer_Shutdown_ReturnsOnDisconnect(t *testing.T) {
-	s := queue.NewRingStore(10)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 10})
 	srv := server.NewMQServer(s, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -493,7 +493,7 @@ func TestMQServer_Shutdown_ReturnsOnDisconnect(t *testing.T) {
 // This test exercises the scenario deterministically by confirming the consumer
 // is active before producing, then asserting delivery within a generous bound.
 func TestMQ_MissedWakeup_SingleConsumer(t *testing.T) {
-	s := queue.NewRingStore(100)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 100})
 	srv := server.NewMQServer(s, 5)
 	defer srv.Shutdown()
 
@@ -558,7 +558,7 @@ func TestMQ_MissedWakeup_SingleConsumer(t *testing.T) {
 // The test simulates both steps by cancelling the stream context right after
 // Shutdown (mirroring what GracefulStop does in production).
 func TestMQ_ShutdownUnderActiveStream(t *testing.T) {
-	s := queue.NewRingStore(100)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 100})
 	srv := server.NewMQServer(s, 10)
 
 	// Use a cancellable stream context so we can simulate GracefulStop's
@@ -606,7 +606,7 @@ func TestMQ_ShutdownUnderActiveStream(t *testing.T) {
 // TestMQ_GoroutineLeak verifies the per-consumer recv goroutine is joined on
 // disconnect, so goroutine count returns to baseline after K bidi consumers exit.
 func TestMQ_GoroutineLeak(t *testing.T) {
-	s := queue.NewRingStore(1000)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 1000})
 	srv := server.NewMQServer(s, 16)
 	defer srv.Shutdown()
 

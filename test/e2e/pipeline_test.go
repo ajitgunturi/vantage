@@ -135,7 +135,7 @@ func restoreDB(ctx context.Context, t *testing.T) {
 func startBufconnMQ(t *testing.T) *bufconn.Listener {
 	t.Helper()
 	lis := bufconn.Listen(bufconnBuf)
-	mqSrv := server.NewMQServer(queue.NewRingStore(10000), 200)
+	mqSrv := server.NewMQServer(queue.NewBroker(queue.BrokerConfig{Capacity: 10000}), 200)
 	grpcSrv := grpc.NewServer()
 	pb.RegisterMQServiceServer(grpcSrv, mqSrv)
 	go grpcSrv.Serve(lis) //nolint:errcheck

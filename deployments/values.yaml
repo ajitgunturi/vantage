@@ -8,6 +8,17 @@ mq:
     repository: vantage/mq
     tag: dev
     pullPolicy: IfNotPresent  # D-06: user choice over Never
+  # must cover drain (drainTimeoutMS) + GracefulStop race (5s) + HTTP (5s).
+  terminationGracePeriodSeconds: 35
+  # Delivery-hardening knobs. Defaults mirror internal/config.
+  hardening:
+    overflowPolicy: reject     # reject | drop-oldest | block
+    maxDeliveries: 5           # deliveries before DLQ routing
+    dlqCapacity: 1000          # bounded dead-letter lane
+    retryBackoffBaseMS: 500    # redelivery visibility backoff base
+    retryBackoffMaxMS: 30000   # redelivery visibility backoff cap
+    leaseTTLMS: 30000          # unacked-lease reclaim deadline
+    drainTimeoutMS: 20000      # SIGTERM drain window
   resources:
     requests:
       cpu: "100m"

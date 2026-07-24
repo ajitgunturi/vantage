@@ -34,7 +34,16 @@ func main() {
 
 	cfg := config.FromEnv()
 
-	s := queue.NewRingStore(cfg.BufferSize)
+	s := queue.NewBroker(queue.BrokerConfig{
+		Capacity:         cfg.BufferSize,
+		Policy:           queue.OverflowPolicy(cfg.OverflowPolicy),
+		BlockTimeout:     time.Duration(cfg.BlockTimeoutMS) * time.Millisecond,
+		MaxDeliveries:    uint32(cfg.MaxDeliveries),
+		DLQCapacity:      cfg.DLQCapacity,
+		RetryBackoffBase: time.Duration(cfg.RetryBackoffBaseMS) * time.Millisecond,
+		RetryBackoffMax:  time.Duration(cfg.RetryBackoffMaxMS) * time.Millisecond,
+		LeaseTTL:         time.Duration(cfg.LeaseTTLMS) * time.Millisecond,
+	})
 	mqSrv := server.NewMQServer(s, cfg.ConsumeCredit)
 	defer mqSrv.Shutdown()
 
@@ -57,6 +66,8 @@ func main() {
 	// HTTP control-plane: method-scoped route requires Go 1.22+ net/http ServeMux.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/queue/inspect", mqhttp.InspectHandler(mqSrv))
+	mux.HandleFunc("GET /api/v1/queue/dlq", mqhttp.DLQHandler(mqSrv))
+	mux.HandleFunc("POST /api/v1/queue/dlq/replay", mqhttp.DLQReplayHandler(mqSrv))
 	mux.HandleFunc("GET /healthz", mqhttp.HealthzHandler())
 	mux.HandleFunc("GET /readyz", mqhttp.ReadyzHandler(mqSrv))
 	httpSrv := &http.Server{
@@ -91,7 +102,33 @@ func main() {
 	// (3) Shutdown coordination goroutine — waits for signal then tears down in order.
 	g.Go(func() error {
 		<-gctx.Done()
-		// Close shutdownCh first so Consume send loops wake from their blocking
+		// preStop drain: stop accepting Produce (readiness gate flips via
+		// IsShuttingDown → the Service stops routing new producers) but keep
+		// Consume streams alive so healthy consumers ack the backlog. This
+		// shrinks the rollout loss window to ~zero when consumers are healthy;
+		// what remains at the deadline is bounded by MQ_DRAIN_TIMEOUT_MS.
+		mqSrv.BeginDrain()
+		drainDeadline := time.After(time.Duration(cfg.DrainTimeoutMS) * time.Millisecond)
+		drainTick := time.NewTicker(100 * time.Millisecond)
+		slog.Info("drain started — refusing Produce, waiting for consumers to clear backlog",
+			"timeout_ms", cfg.DrainTimeoutMS)
+	drain:
+		for {
+			select {
+			case <-drainTick.C:
+				if mqSrv.Drained() {
+					slog.Info("drain complete — no queued or in-flight messages")
+					break drain
+				}
+			case <-drainDeadline:
+				st := mqSrv.Stats()
+				slog.Warn("drain timeout — proceeding to shutdown with messages remaining",
+					"depth", st.Depth, "retry_depth", st.RetryDepth, "in_flight", st.InFlight)
+				break drain
+			}
+		}
+		drainTick.Stop()
+		// Close shutdownCh so Consume send loops wake from their blocking
 		// selects and return codes.Unavailable before GracefulStop polls them.
 		mqSrv.Shutdown()
 		// Race GracefulStop against a 5s timeout; fall back to Stop() so a slow
