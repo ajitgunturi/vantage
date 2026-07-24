@@ -38,10 +38,27 @@ As of Phase 01.1 the MQ delivers **at-least-once** over a **bidirectional** `Con
 - The broker assigns each message a monotonic **id** and **leases** it to the consumer. A message
   leaves broker custody **only when the consumer acks that id** — `Consume{AckId: msg.id}`.
 - If a consumer disconnects with **unacked** leases, those messages are **re-enqueued at the front
-  and redelivered** to a surviving consumer — **no loss**. Redelivery can produce **duplicates**,
-  which the (idempotent) Collector absorbs downstream.
+  and redelivered** to a surviving consumer — **no loss while the ring has free capacity** (see
+  [Overload semantics](#overload-semantics)). Redelivery can produce **duplicates**, which the
+  (idempotent) Collector absorbs downstream.
 - Steady state with all consumers acking is still **unique delivery** — each message goes to exactly
   one consumer.
+
+### Overload semantics
+
+The at-least-once guarantee is scoped by the ring buffer's capacity (`MQ_BUFFER_SIZE`, see the
+config table above). When the ring is **full**, two eviction modes can silently discard messages:
+
+- **Producer overload — drop-oldest.** `Enqueue` on a full ring evicts the *oldest* buffered
+  message to make room. The producer is not told: `Produce` still returns `accepted=true`, so
+  sustained production faster than consumption loses the head of the queue invisibly.
+- **Requeue at full ring — drop-newest.** Re-enqueueing unacked leases after a consumer
+  disconnect evicts the *newest* (tail-side) entries when the ring is full — a slow consumer
+  that disconnects near a full ring can destroy unrelated, freshly produced messages.
+
+Both eviction modes increment the `dropped_total` counter on
+`GET /api/v1/queue/inspect` — a non-zero value is the signal that loss has occurred. Sizing
+`MQ_BUFFER_SIZE` above the worst-case backlog is currently the only mitigation.
 
 Storage is **in-memory only** (a ring buffer behind the `Store` interface); crash durability is the
 opt-in WAL backend designed for Phase 7 (deferred post-v1; see [`docs/FUTURE.md`](FUTURE.md)).
@@ -108,6 +125,7 @@ redelivery over the wire.
 
 The MQ's correctness under concurrency is proven by race-detector tests in `internal/server` and
 `internal/queue` (run at `-count=50`): broker-side at-least-once with **no loss** on consumer
-disconnect, **no over-pull** beyond credit `C`, **redelivery** of unacked leases to survivors,
+disconnect (ring capacity permitting — see [Overload semantics](#overload-semantics)),
+**no over-pull** beyond credit `C`, **redelivery** of unacked leases to survivors,
 **unique** steady-state delivery, **safe** ack handling (unknown/double acks are no-ops), and no
 goroutine leaks.
