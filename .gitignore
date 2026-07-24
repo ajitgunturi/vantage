@@ -54,3 +54,4 @@ build/.deploy/
 # Stray binary from ad-hoc `go build ./cmd/migrate` (use bin/ instead)
 /migrate
 /mqprobe
+/.stack/
