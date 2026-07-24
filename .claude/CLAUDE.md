@@ -38,7 +38,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | Go | 1.26.4 | Runtime for all four microservices | Latest stable; `min go 1.22` in go.mod minimum for path-variable ServeMux. 1.26.x adds range-over-func and other ergonomics with no migration cost. |
 | google.golang.org/grpc | v1.81.1 | gRPC runtime; bidirectional streaming for MQ Consume (ack+credit, ADR-001) + unary Produce | The only maintained Go gRPC implementation; v1.81.1 is May 2026. Pin this in go.mod — minor releases have behavioral changes. |
 | google.golang.org/protobuf | v1.36.11 | Protobuf v3 runtime / generated code | Replaces the deprecated `github.com/golang/protobuf`. v1.36.11 is Dec 2025; fixes a JSON unmarshaling CVE present in <v1.33. |
-| github.com/jackc/pgx/v5 | v5.10.0 | PostgreSQL driver + connection pool (pgxpool) | De-facto standard; v5 rewrote pgxpool for correct concurrency. pgx.CopyFrom uses the PostgreSQL COPY protocol — the fastest bulk-insert path, 5-10x faster than multi-row INSERT at scale. |
+| github.com/jackc/pgx/v5 | v5.10.0 | PostgreSQL driver + connection pool (pgxpool) | De-facto standard; v5 rewrote pgxpool for correct concurrency. Shipped persistence path is `SendBatch` + `ON CONFLICT DO NOTHING` (ADR-007 — reversed the original CopyFrom recommendation: idempotent absorption of at-least-once redeliveries needs ON CONFLICT, which COPY cannot express). |
 | github.com/go-chi/chi/v5 | v5.3.0 | HTTP router for API Gateway + MQ control plane | 100% net/http compatible — uses `http.Handler`/`http.ResponseWriter`/`*http.Request` with no custom context type. Supports path variables (`{id}`) needed for `/gpus/{id}/telemetry`. Zero external dependencies. |
 | github.com/swaggo/swag | v1.16.4 | OpenAPI spec generation from code annotations | The spec mandates fully auto-generated docs from annotations; swag init parses `// @Param`, `// @Success`, etc. and emits `docs/swagger.json`. Use v1.16.x, NOT v2.0.0-rc5 (RC, not stable). Pinned at v1.16.4 in go.mod (Phase 4: the generated `pkg/docs` imports the swag runtime; CLI and library kept in lockstep). |
 | protoc (raw) + protoc-gen-go / protoc-gen-go-grpc | protoc ≥ 25, plugins pinned via `make tools` | Protobuf toolchain — generation via `make proto`, generated code committed to `pkg/pb/` | **Chosen over buf (see `docs/adr/ADR-005-raw-protoc-over-buf.md`):** one proto file, no registry/versioning need; committing `pkg/pb/` keeps builds/CI hermetic (`go build`/`go test` need no proto toolchain). buf was the original research recommendation and was rejected. |
@@ -83,7 +83,7 @@ Generation is `make proto` — raw `protoc` with `--go_out`/`--go-grpc_out` and
 | Proto toolchain | raw protoc (per ADR-005) | buf CLI | buf's lint/breaking-change/BSR features are overhead for a single proto file with no external registry need; raw protoc + committed `pkg/pb/` codegen keeps builds hermetic. (buf was the original research recommendation; ADR-005 reversed it.) |
 | HTTP router (Gateway) | chi/v5 v5.3.0 | gin v1 | Gin uses its own `*gin.Context` type, breaking compatibility with standard `http.Handler` middleware. Chi is idiomatic Go — any net/http middleware works without adaptation. |
 | HTTP router (MQ control plane) | net/http ServeMux | chi | MQ has exactly one HTTP endpoint (`GET /api/v1/queue/inspect`). No path variables, no middleware chain needed. ServeMux is zero-dependency and sufficient. |
-| PostgreSQL bulk insert | pgxpool.CopyFrom | pgx.Batch / SendBatch | CopyFrom uses PostgreSQL COPY protocol — the fastest available path, 5-10x faster at volume. pgx.Batch/SendBatch is for mixed-operation batches or when partial failure per-row matters. |
+| PostgreSQL bulk insert | pgx SendBatch + ON CONFLICT DO NOTHING (ADR-007) | pgxpool.CopyFrom | CopyFrom (COPY protocol) is faster at raw volume but cannot express `ON CONFLICT DO NOTHING`, which the idempotent Collector needs to absorb at-least-once redeliveries. CopyFrom was the original research recommendation; docs/adr/ADR-007 reversed it — record the reversal, SendBatch is the shipped path. |
 | OpenAPI generation | swag v1.16.4 | swag v2.0.0-rc5 | v2 is a release candidate (last: RC5, Jan 2026); not suitable for a production codebase. Revisit when v2.0.0 stable ships. |
 | Integration testing | testcontainers-go | dockertest | testcontainers-go is more actively maintained, has first-class Postgres module with Snapshot/Restore, and the API is cleaner. |
 | Base image (final stage) | distroless/static-debian12 | alpine | Go binaries compile statically by default (CGO_ENABLED=0). Distroless drops shell, package manager, and libc — significantly smaller attack surface than alpine. Use alpine in builder stage only. |
@@ -103,14 +103,14 @@ Generation is `make proto` — raw `protoc` with `--go_out`/`--go-grpc_out` and
 
 ## Stack Patterns by Variant
 
-- Define service in `api/proto/mq.proto` with `Produce(MetricPayload) returns (Ack)` and a **bidirectional** `Consume(stream ConsumeControl) returns (stream MetricPayload)` — client streams credit + acks, server streams messages (broker-side at-least-once, ADR-001)
+- Define service in `api/proto/mq.proto` with `Produce(MetricPayload) returns (Ack)` (legacy per-row), `ProduceBatch` (unary batch — the primary publish path, ADR-013), and a **bidirectional** `Consume(stream ConsumeControl) returns (stream MetricPayload)` — client streams credit + acks, server streams messages (broker-side at-least-once, ADR-001)
 - Generate with `make proto` (raw protoc; see ADR-005)
 - Implement `grpc.NewServer()` on one port (default 50051); `net/http` ServeMux on a second port (8080) for the control plane
 - Keep gRPC server and HTTP server in separate goroutines; use `errgroup.Group` from `golang.org/x/sync/errgroup` to manage both
 - Open pgxpool once at startup: `pgxpool.New(ctx, connString)` with `pgxpool.ParseConfig` to set `MaxConns`
-- Use `pool.CopyFrom(ctx, pgx.Identifier{"gpu_metrics"}, colNames, pgx.CopyFromRows(rows))` per batch
+- Use pgx `SendBatch` with per-row `INSERT ... ON CONFLICT DO NOTHING` per flush (ADR-007 — not CopyFrom: COPY cannot express ON CONFLICT, which idempotent absorption of redeliveries requires)
 - Batch by time window (e.g., flush every 500ms or every 1000 rows, whichever comes first) using a ticker + channel drain loop
-- Do NOT open per-message transactions — COPY is transactional by nature
+- Do NOT open per-message transactions — the batch flush is the transactional unit
 - Every handler must have a full swag comment block: `// @Summary`, `// @Tags`, `// @Produce json`, `// @Param`, `// @Success`, `// @Failure`, `// @Router`
 - `swag init` must point at `cmd/gateway/main.go` (the file with `// @title`, `// @version`, `// @BasePath`)
 - Mount swagger UI: `r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))`

@@ -44,6 +44,7 @@ type Config struct {
 //	STREAMER_CSV_PATH      (no default; validated in Run)
 //	STREAMER_LOOP_DELAY_MS (default 1; invalid/negative silently keeps default)
 //	STREAMER_HEALTH_ADDR   (default ":9000")
+//	STREAMER_BATCH_SIZE    (default 100; rows per ProduceBatch call, 1 = legacy per-row Produce)
 func FromEnv() Config {
 	cfg := Config{
 		MQAddr:      ":50051",
