@@ -8,8 +8,8 @@ meta:
   description: >-
     All REST endpoints of the vantage pipeline against the local stack
     (make stack-up — also left running after make smoke). Base URLs live in
-    the Base Environment; gpu_id defaults to a fixture GPU — replace with a
-    real id from List GPUs. The MQ data plane (Produce/ProduceBatch/Consume)
+    the Base Environment; set the gpuId path parameter on each telemetry request (Path
+    Parameters tab) — grab a real id from List GPUs. The MQ data plane (Produce/ProduceBatch/Consume)
     is gRPC on :50051 — use scripts/smoke/mqprobe for that.
 collection:
   - name: Gateway (:8080)
@@ -34,7 +34,7 @@ collection:
             send: true
             store: true
           rebuildPath: true
-      - url: "{{ _.gateway }}/api/v1/gpus/{{ _.gpu_id }}/telemetry"
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
         name: Telemetry — latest (default page)
         meta:
           id: req_a0000000000000000000000000000102
@@ -42,7 +42,10 @@ collection:
           modified: 1784898197102
           sortKey: -99
         method: GET
-      - url: "{{ _.gateway }}/api/v1/gpus/{{ _.gpu_id }}/telemetry"
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
         name: Telemetry — offset pagination (with total)
         meta:
           id: req_a0000000000000000000000000000103
@@ -50,12 +53,15 @@ collection:
           modified: 1784898197103
           sortKey: -98
         method: GET
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
         parameters:
           - name: limit
             value: "100"
           - name: offset
             value: "0"
-      - url: "{{ _.gateway }}/api/v1/gpus/{{ _.gpu_id }}/telemetry"
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
         name: Telemetry — cursor pagination (keyset)
         meta:
           id: req_a0000000000000000000000000000104
@@ -68,13 +74,16 @@ collection:
             re-send to walk pages in O(page). cursor and offset are mutually
             exclusive; cursor mode omits pagination.total by design.
         method: GET
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
         parameters:
           - name: limit
             value: "100"
           - name: cursor
             value: PASTE_next_cursor_HERE
             disabled: true
-      - url: "{{ _.gateway }}/api/v1/gpus/{{ _.gpu_id }}/telemetry"
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
         name: Telemetry — time window (RFC3339)
         meta:
           id: req_a0000000000000000000000000000105
@@ -82,6 +91,9 @@ collection:
           modified: 1784898197105
           sortKey: -96
         method: GET
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
         parameters:
           - name: start_time
             value: "2026-07-24T00:00:00Z"
@@ -268,4 +280,3 @@ environments:
     mq: http://localhost:8081
     streamer: http://localhost:9000
     collector: http://localhost:9001
-    gpu_id: GPU-00000001
