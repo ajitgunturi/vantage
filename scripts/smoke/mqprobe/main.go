@@ -21,11 +21,22 @@
 // exercises the late-join path: the producer publishes and disconnects, and a
 // consumer that attaches afterwards still drains (and acks) the buffered messages.
 //
+// Delivery-hardening boundary modes:
+//
+//	produce-expect-reject  Produce up to N; SUCCEEDS only if the broker refuses
+//	                       one with ResourceExhausted (backpressure) or
+//	                       Unavailable (drain). All N accepted = FAIL.
+//	consume-noack          Attach, lease up to N messages, ack NOTHING, and hold
+//	                       the stream open for -hold — the live-but-stuck
+//	                       consumer scenario the lease TTL sweeper covers.
+//
 // Usage:
 //
 //	go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:55051 -n 20
 //	go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:55051 -n 20 -mode produce
 //	go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:55051 -n 20 -mode consume -credit 20
+//	go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:55051 -n 5 -mode produce-expect-reject
+//	go run ./scripts/smoke/mqprobe -grpc 127.0.0.1:55051 -n 5 -mode consume-noack -hold 1500ms
 package main
 
 import (
@@ -36,7 +47,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/ajitg/vantage/pkg/pb"
 )
@@ -44,18 +57,19 @@ import (
 func main() {
 	addr := flag.String("grpc", "127.0.0.1:50051", "MQ gRPC address")
 	n := flag.Int("n", 20, "number of messages to produce and/or consume")
-	mode := flag.String("mode", "both", "both | produce | consume")
+	mode := flag.String("mode", "both", "both | produce | consume | produce-expect-reject | consume-noack")
 	credit := flag.Int("credit", 20, "initial flow-control credit (bidi consume window)")
 	timeout := flag.Duration("timeout", 10*time.Second, "overall deadline")
+	hold := flag.Duration("hold", 0, "consume-noack: how long to keep the stream open after leasing")
 	flag.Parse()
 
-	if err := run(*addr, *n, *credit, *mode, *timeout); err != nil {
+	if err := run(*addr, *n, *credit, *mode, *timeout, *hold); err != nil {
 		fmt.Fprintf(os.Stderr, "mqprobe: FAIL: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr string, n, credit int, mode string, timeout time.Duration) error {
+func run(addr string, n, credit int, mode string, timeout, hold time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -82,9 +96,78 @@ func run(addr string, n, credit int, mode string, timeout time.Duration) error {
 		}
 		fmt.Printf("mqprobe: OK — consumed %d via %s\n", got, addr)
 		return nil
+	case "produce-expect-reject":
+		accepted, err := produceExpectReject(ctx, client, n)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("mqprobe: OK — broker refused after %d accepted (backpressure surfaced) via %s\n", accepted, addr)
+		return nil
+	case "consume-noack":
+		got, err := consumeNoAck(ctx, client, n, hold)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("mqprobe: OK — leased %d without acking, held stream %s via %s\n", got, hold, addr)
+		return nil
 	default:
-		return fmt.Errorf("unknown -mode %q (want both|produce|consume)", mode)
+		return fmt.Errorf("unknown -mode %q (want both|produce|consume|produce-expect-reject|consume-noack)", mode)
 	}
+}
+
+// produceExpectReject produces up to n messages EXPECTING the broker to refuse
+// one: ResourceExhausted (ring full backpressure) or Unavailable (draining). Returns how many were accepted before the refusal; if all n are
+// accepted the boundary under test did not fire and the probe fails.
+func produceExpectReject(ctx context.Context, client pb.MQServiceClient, n int) (int, error) {
+	for i := 0; i < n; i++ {
+		_, err := client.Produce(ctx, &pb.ProduceRequest{
+			Message: &pb.TelemetryMessage{
+				Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
+				MetricName: "DCGM_FI_DEV_GPU_UTIL",
+				GpuId:      "0",
+				Uuid:       fmt.Sprintf("GPU-smoke-rej-%04d", i),
+				Value:      float64(i),
+			},
+		})
+		if err == nil {
+			continue
+		}
+		switch status.Code(err) {
+		case codes.ResourceExhausted, codes.Unavailable:
+			return i, nil // the refusal we came for
+		default:
+			return i, fmt.Errorf("produce %d/%d failed with unexpected code %s: %w", i+1, n, status.Code(err), err)
+		}
+	}
+	return n, fmt.Errorf("all %d produces accepted — expected a ResourceExhausted/Unavailable refusal (backpressure did not fire)", n)
+}
+
+// consumeNoAck leases up to n messages WITHOUT acking and keeps the stream
+// open for hold — a live-but-stuck consumer. The broker's lease TTL sweeper
+// must reclaim these leases while the stream is still connected.
+func consumeNoAck(ctx context.Context, client pb.MQServiceClient, n int, hold time.Duration) (int, error) {
+	stream, err := openConsume(ctx, client, n) // credit = n: can lease everything
+	if err != nil {
+		return 0, err
+	}
+	got := 0
+	for got < n {
+		msg, rerr := stream.Recv()
+		if rerr != nil {
+			return got, fmt.Errorf("recv after %d/%d: %w", got, n, rerr)
+		}
+		if msg.GetMetricName() == "" {
+			return got, fmt.Errorf("received message with empty metric_name after %d/%d", got, n)
+		}
+		got++ // deliberately NO ack — the lease stays open
+	}
+	select { // hold the stream so only the TTL sweeper can reclaim the leases
+	case <-time.After(hold):
+	case <-ctx.Done():
+		return got, fmt.Errorf("timed out during hold: %w", ctx.Err())
+	}
+	awaitServerClose(stream)
+	return got, nil
 }
 
 // runBoth opens the bidi Consume stream first — mirrors a Collector connecting
@@ -115,7 +198,7 @@ func runBoth(ctx context.Context, client pb.MQServiceClient, n, credit int, addr
 		return fmt.Errorf("timed out waiting to consume %d messages: %w", n, ctx.Err())
 	}
 
-	_ = stream.CloseSend()
+	awaitServerClose(stream)
 	fmt.Printf("mqprobe: OK — produced %d, consumed %d via %s\n", n, n, addr)
 	return nil
 }
@@ -150,8 +233,22 @@ func consume(ctx context.Context, client pb.MQServiceClient, n, credit int) (int
 	if err != nil {
 		return got, err
 	}
-	_ = stream.CloseSend()
+	awaitServerClose(stream)
 	return got, nil
+}
+
+// awaitServerClose half-closes the client side and waits for the broker to
+// finish the stream. The broker's Consume handler drains pending acks before
+// returning, so blocking on the final Recv guarantees every ack sent above has
+// been processed — without this, closing the connection races the last acks
+// and the broker would treat them as unacked leases (spurious redelivery).
+func awaitServerClose(stream pb.MQService_ConsumeClient) {
+	_ = stream.CloseSend()
+	for {
+		if _, err := stream.Recv(); err != nil {
+			return
+		}
+	}
 }
 
 // openConsume opens the bidirectional Consume stream and sends the initial credit
