@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -196,10 +197,14 @@ func TestUniqueConstraint(t *testing.T) {
 	require.NoError(t, err, "first insert must succeed")
 
 	// Second insert with identical (gpu_id, metric_name, timestamp) must fail.
+	// On the partitioned table (migration 000003) the violation reports the
+	// PARTITION's child index name, so assert the SQLSTATE (23505
+	// unique_violation) — the durable contract — rather than an index name.
 	_, err = testPool.Exec(ctx, insertSQL, gpuID, ts, metric, 99.0)
 	require.Error(t, err, "duplicate (gpu_id, metric_name, timestamp) must violate unique constraint")
-	require.Contains(t, err.Error(), "uq_gpu_metrics_natural_key",
-		"error must reference the named unique constraint uq_gpu_metrics_natural_key")
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "23505", pgErr.Code, "must be unique_violation; got: %v", err)
 }
 
 // TestCompositeIndexUsed verifies DB-02: after seeding 100k rows and running

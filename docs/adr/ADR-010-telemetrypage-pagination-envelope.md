@@ -1,6 +1,6 @@
 # ADR-010: `TelemetryPage` Pagination Envelope with Limit+1 Sentinel
 
-**Status:** Accepted (amended 2026-07-03: `total` added by owner directive)
+**Status:** Accepted (amended 2026-07-03: `total` added by owner directive; amended 2026-07-24: keyset cursor mode adopted)
 **Date:** 2026-07-03
 **Phase:** 6 — Production Hardening + Assignment Alignment (addresses audit finding F-06 and API requirement API-05)
 **Backfilled:** 2026-07-03
@@ -120,3 +120,20 @@ request more than `MAX_ROWS` rows per page.
 | `COUNT(*)` for total row count | Correct — provides `total_count` to clients. Extra DB round-trip per request; adds latency proportional to table size. Originally rejected in favour of the sentinel; **adopted by the 2026-07-03 amendment** (owner directive) for the `total` field, while the sentinel still drives `has_next`. |
 | Keyset / cursor-based pagination | Scales to very large datasets with no `OFFSET` scan penalty. Heavier implementation: requires a stable sort key exposed in the response, opaque cursor encoding, and client bookmarking. `OFFSET` is sufficient for the fixture-scale read API and simpler to implement and test. |
 | Separate pagination metadata endpoint | Requires two API calls per "page with metadata" load. Unnecessary complexity when the envelope pattern is simpler and standard. |
+
+
+---
+
+*Amendment (2026-07-24): keyset cursor mode adopted.* The "keyset / cursor"
+alternative rejected above at fixture scale is now implemented for real DCGM
+volumes, where `OFFSET n` walks and discards `n` index entries per page:
+
+- `?cursor=<opaque token>` (base64url of the last row's `(timestamp,
+  metric_name)`) seeks directly via a row-comparison predicate. Offset mode
+  remains for compatibility; the two are mutually exclusive per request.
+- The sort became a **total order** — `ORDER BY timestamp DESC, metric_name
+  DESC` (unique per GPU by the natural key). The previous timestamp-only sort
+  was not total: equal-timestamp rows could swap between pages in either mode.
+- `pagination.next_cursor` is emitted in both modes whenever another page
+  exists; `pagination.total` is omitted in cursor mode (the COUNT(*) is the
+  per-page O(n) cost keyset avoids) and is now `omitempty` in the envelope.

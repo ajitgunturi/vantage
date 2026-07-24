@@ -70,6 +70,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/queue/dlq/replay", mqhttp.DLQReplayHandler(mqSrv))
 	mux.HandleFunc("GET /healthz", mqhttp.HealthzHandler())
 	mux.HandleFunc("GET /readyz", mqhttp.ReadyzHandler(mqSrv))
+	mux.HandleFunc("GET /metrics", mqhttp.MetricsHandler(mqSrv))
 	httpSrv := &http.Server{
 		Addr:         cfg.HTTPAddr,
 		Handler:      mux,

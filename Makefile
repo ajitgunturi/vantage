@@ -94,10 +94,11 @@ coverage: check-env ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on intern
 e2e: check-env ## Run end-to-end pipeline tests (requires Docker — see .env, top-of-file comment)
 	go test -race -tags=integration -count=1 -v ./test/e2e/...
 
-smoke: ## Run every phase's manual smoke check (all phases shipped so far)
+smoke: ## Run every phase's smoke check, then leave a running local stack (SMOKE_NO_STACK=1 to skip)
 	@found=0; for f in scripts/smoke/phase*.sh; do \
 		[ -e "$$f" ] || continue; found=1; echo "== $$f =="; bash "$$f" || exit 1; done; \
 	[ "$$found" = 1 ] || echo "no smoke scripts yet under scripts/smoke/"
+	@if [ "$${SMOKE_NO_STACK:-0}" != "1" ]; then $(MAKE) stack-up; fi
 
 smoke-%: ## Run one phase's manual smoke check, e.g. make smoke-01
 	@found=0; for f in scripts/smoke/phase$*-*.sh; do \
@@ -192,3 +193,69 @@ soak: check-env ## Run sustained pipeline soak (SOAK_DURATION=60, SOAK_STREAMERS
 
 test-harness: check-env ## Run live-infrastructure E2E harness (requires Docker)
 	go test -race -tags=e2e -count=1 -v -timeout 120s ./test/harness/...
+
+# ── Local running stack (manual testing) ─────────────────────────────────────
+STACK_DIR := .stack
+STACK_DSN := postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
+
+stack-up: build dev-up ## Start all four services locally against dev Postgres (logs+pids in .stack/)
+	@mkdir -p $(STACK_DIR)
+	@# Clear ANY previous stack first — including orphans whose pidfiles were
+	@# overwritten. Without this, new processes die on bind conflicts while the
+	@# old stack keeps serving, and pidfiles/logs point at dead processes.
+	@$(MAKE) --no-print-directory stack-down >/dev/null 2>&1 || true
+	@pkill -f 'bin/(mq|streamer|collector|gateway)$$' 2>/dev/null || true
+	@pkill -f 'kubectl port-forward.*vantage' 2>/dev/null || true
+	@sleep 0.5
+	@echo "waiting for postgres..."; \
+	for i in $$(seq 1 30); do \
+	  docker compose exec -T postgres pg_isready -U vantage >/dev/null 2>&1 && break; sleep 1; done
+	@VANTAGE_DB_DSN="$(STACK_DSN)" go run ./cmd/migrate && echo "migrations applied"
+	@MQ_HTTP_ADDR=:8081 nohup ./bin/mq            > $(STACK_DIR)/mq.log        2>&1 & echo $$! > $(STACK_DIR)/mq.pid
+	@VANTAGE_DB_DSN="$(STACK_DSN)" COLLECTOR_MQ_ADDR=127.0.0.1:50051 \
+	  nohup ./bin/collector                       > $(STACK_DIR)/collector.log 2>&1 & echo $$! > $(STACK_DIR)/collector.pid
+	@STREAMER_MQ_ADDR=127.0.0.1:50051 STREAMER_CSV_PATH=testdata/fixture.csv STREAMER_LOOP_DELAY_MS=100 \
+	  nohup ./bin/streamer                        > $(STACK_DIR)/streamer.log  2>&1 & echo $$! > $(STACK_DIR)/streamer.pid
+	@VANTAGE_DB_DSN="$(STACK_DSN)" \
+	  nohup ./bin/gateway                         > $(STACK_DIR)/gateway.log   2>&1 & echo $$! > $(STACK_DIR)/gateway.pid
+	@sleep 1
+	@for ep in "8081/healthz mq" "9000/healthz streamer" "9001/healthz collector" "8080/healthz gateway"; do \
+	  port=$${ep%%/*}; rest=$${ep#*/}; path=$${rest%% *}; svc=$${rest##* }; ok=0; \
+	  for i in $$(seq 1 30); do curl -sf "http://localhost:$$port/$$path" >/dev/null 2>&1 && { ok=1; break; }; sleep 0.3; done; \
+	  [ "$$ok" = 1 ] || { echo "✗ $$svc failed to start — see $(STACK_DIR)/$$svc.log"; tail -3 $(STACK_DIR)/$$svc.log; exit 1; }; \
+	done
+	@echo ""
+	@echo "── local stack running (import Insomnia_Collection.yaml for ready-made requests) ──"
+	@echo "  Gateway    http://localhost:8080   (/api/v1/gpus, /swagger/, /metrics)"
+	@echo "  MQ         http://localhost:8081   (/api/v1/queue/inspect, /api/v1/queue/dlq, /metrics)  gRPC :50051"
+	@echo "  Streamer   http://localhost:9000   (/healthz, /metrics)"
+	@echo "  Collector  http://localhost:9001   (/healthz, /metrics)"
+	@echo "  Postgres   localhost:5432          (vantage/vantage)"
+	@echo "  logs: $(STACK_DIR)/*.log — stop with: make stack-down"
+
+stack-down: ## Stop the local stack (leaves dev Postgres running; make dev-down for that)
+	@for f in $(STACK_DIR)/*.pid; do \
+	  [ -e "$$f" ] || continue; \
+	  kill "$$(cat $$f)" 2>/dev/null || true; rm -f "$$f"; \
+	done; echo "stack stopped (postgres still up — 'make dev-down' to stop it)"
+
+kind-forward: ## Port-forward the kind cluster onto the local-stack ports (Insomnia collection works unchanged)
+	@$(MAKE) --no-print-directory stack-down >/dev/null 2>&1 || true
+	@pkill -f 'kubectl port-forward.*vantage' 2>/dev/null || true
+	@mkdir -p $(STACK_DIR); sleep 0.5
+	@nohup kubectl port-forward svc/vantage-mq        8081:8080 50051:50051 > $(STACK_DIR)/pf-mq.log        2>&1 & echo $$! > $(STACK_DIR)/pf-mq.pid
+	@nohup kubectl port-forward svc/vantage-gateway   8080:8080             > $(STACK_DIR)/pf-gateway.log   2>&1 & echo $$! > $(STACK_DIR)/pf-gateway.pid
+	@nohup kubectl port-forward deploy/vantage-streamer  9000:9000          > $(STACK_DIR)/pf-streamer.log  2>&1 & echo $$! > $(STACK_DIR)/pf-streamer.pid
+	@nohup kubectl port-forward deploy/vantage-collector 9001:9001          > $(STACK_DIR)/pf-collector.log 2>&1 & echo $$! > $(STACK_DIR)/pf-collector.pid
+	@for ep in "8080 gateway" "8081 mq" "9000 streamer" "9001 collector"; do \
+	  port=$${ep%% *}; svc=$${ep##* }; ok=0; \
+	  for i in $$(seq 1 30); do curl -sf "http://localhost:$$port/healthz" >/dev/null 2>&1 && { ok=1; break; }; sleep 0.3; done; \
+	  [ "$$ok" = 1 ] || { echo "✗ forward to $$svc failed — see $(STACK_DIR)/pf-$$svc.log"; exit 1; }; \
+	done
+	@echo "── kind cluster forwarded to local ports (same as the Insomnia collection) ──"
+	@echo "  Gateway :8080 · MQ :8081 (gRPC :50051) · Streamer :9000 · Collector :9001"
+	@echo "  stop with: make kind-unforward   (local stack instead: make stack-up)"
+
+kind-unforward: ## Stop the kind port-forwards
+	@pkill -f 'kubectl port-forward.*vantage' 2>/dev/null || true
+	@rm -f $(STACK_DIR)/pf-*.pid; echo "port-forwards stopped"

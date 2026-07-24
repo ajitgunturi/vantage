@@ -51,6 +51,10 @@ type failSendClient struct {
 	ctx context.Context
 }
 
+func (f *failSendClient) ProduceBatch(_ context.Context, _ *pb.ProduceBatchRequest, _ ...grpc.CallOption) (*pb.ProduceBatchResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (f *failSendClient) Produce(_ context.Context, _ *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
 	return nil, fmt.Errorf("produce not supported in failSendClient")
 }

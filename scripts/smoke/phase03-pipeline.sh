@@ -166,6 +166,17 @@ pass "UUID mapping: gpu_id values are GPU UUIDs, not ordinals (D-04 verified)"
 
 # ── Step 12: print summary ────────────────────────────────────────────────────
 GPU_COUNT=$(pg_exec -tAc "SELECT count(distinct gpu_id) FROM gpu_metrics;" 2>&1 | tr -d '[:space:]')
+# ── Prometheus exposition: streamer + collector publish live counters ─────────
+SM=$(curl -sf "http://localhost:9000/metrics") || fail "streamer /metrics unreachable"
+echo "$SM" | grep -E '^streamer_rows_produced_total [1-9]' >/dev/null \
+  || fail "streamer_rows_produced_total must be > 0 after a pipeline run"
+CM=$(curl -sf "http://localhost:9001/metrics") || fail "collector /metrics unreachable"
+echo "$CM" | grep -E '^collector_batches_total [1-9]' >/dev/null \
+  || fail "collector_batches_total must be > 0 after a pipeline run"
+echo "$CM" | grep -q '^collector_batch_persist_seconds_count' \
+  || fail "collector persist-latency histogram missing"
+pass "Prometheus metrics live — streamer rows produced + collector batch counters/histograms"
+
 echo "${GREEN}${BOLD}PASS${RST} — Phase 3 pipeline smoke"
 echo "       Rows:          $TOTAL"
 echo "       Distinct rows: $DISTINCT"

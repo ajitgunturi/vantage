@@ -149,7 +149,7 @@ func Telemetry(
 			`SELECT `+cols+`
 			 FROM gpu_metrics
 			 WHERE gpu_id = $1
-			 ORDER BY timestamp DESC
+			 ORDER BY timestamp DESC, metric_name DESC
 			 LIMIT $2 OFFSET $3`,
 			id, limit, offset,
 		)
@@ -166,7 +166,7 @@ func Telemetry(
 			 WHERE gpu_id = $1
 			   AND ($2::timestamptz IS NULL OR timestamp >= $2)
 			   AND ($3::timestamptz IS NULL OR timestamp <= $3)
-			 ORDER BY timestamp DESC
+			 ORDER BY timestamp DESC, metric_name DESC
 			 LIMIT $4 OFFSET $5`,
 			id, start, end, limit, offset,
 		)
@@ -175,7 +175,62 @@ func Telemetry(
 		return nil, fmt.Errorf("db: Telemetry: query: %w", err)
 	}
 	defer rows.Close()
+	return scanMetrics(rows)
+}
 
+// TelemetryAfter is the keyset (cursor) page fetch: rows strictly AFTER the
+// cursor position in the (timestamp DESC, metric_name DESC) total order —
+// pagination cost is O(page), not O(offset). OFFSET-based paging walks and
+// discards every skipped index entry (OFFSET 1e6 touches a million entries
+// per page); the keyset predicate seeks directly instead.
+//
+// The (timestamp, metric_name) pair is unique per gpu_id (natural key
+// DB-04), so the order is total and pages are stable under concurrent
+// ingest — new rows land ahead of an already-issued cursor, never inside
+// earlier pages.
+//
+// The row-comparison predicate (timestamp, metric_name) < ($c_ts, $c_mn) is
+// exactly "later in DESC order than the cursor row". The timestamp bound
+// rides idx_gpu_metrics_gpu_id_ts; the metric_name tie-break only linearly
+// scans within one identical timestamp (nanosecond restamping makes such
+// ties rare and tiny).
+//
+// Security: all parameters are pgx-bound ($1..$6); no string concatenation;
+// DSN never embedded in errors (ASVS V5, V8).
+func TelemetryAfter(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	id string,
+	start, end *time.Time,
+	cursorTS time.Time,
+	cursorMetric string,
+	limit int,
+) ([]models.GpuMetric, error) {
+	const cols = `gpu_id, timestamp, metric_name, value,
+	              COALESCE(device, ''), COALESCE(model_name, ''), COALESCE(hostname, ''),
+	              COALESCE(container, ''), COALESCE(pod, ''), COALESCE(namespace, ''),
+	              COALESCE(labels_raw, '')`
+
+	rows, err := pool.Query(ctx,
+		`SELECT `+cols+`
+		 FROM gpu_metrics
+		 WHERE gpu_id = $1
+		   AND ($2::timestamptz IS NULL OR timestamp >= $2)
+		   AND ($3::timestamptz IS NULL OR timestamp <= $3)
+		   AND (timestamp, metric_name) < ($4, $5)
+		 ORDER BY timestamp DESC, metric_name DESC
+		 LIMIT $6`,
+		id, start, end, cursorTS, cursorMetric, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("db: TelemetryAfter: query: %w", err)
+	}
+	defer rows.Close()
+	return scanMetrics(rows)
+}
+
+// scanMetrics drains rows into a non-nil slice (encodes as [] not null).
+func scanMetrics(rows pgx.Rows) ([]models.GpuMetric, error) {
 	result := make([]models.GpuMetric, 0)
 	for rows.Next() {
 		var m models.GpuMetric
@@ -184,12 +239,12 @@ func Telemetry(
 			&m.Device, &m.ModelName, &m.Hostname,
 			&m.Container, &m.Pod, &m.Namespace, &m.LabelsRaw,
 		); scanErr != nil {
-			return nil, fmt.Errorf("db: Telemetry: scan: %w", scanErr)
+			return nil, fmt.Errorf("db: telemetry scan: %w", scanErr)
 		}
 		result = append(result, m)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("db: Telemetry: rows: %w", err)
+		return nil, fmt.Errorf("db: telemetry rows: %w", err)
 	}
 	return result, nil
 }

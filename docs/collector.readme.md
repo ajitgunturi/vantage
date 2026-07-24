@@ -79,3 +79,11 @@ docker compose exec -T postgres psql -U vantage -d vantage \
 docker compose exec -T postgres psql -U vantage -d vantage \
   -c 'SELECT count(*), count(distinct gpu_id) FROM gpu_metrics;'
 ```
+
+## Prometheus metrics
+
+`GET /metrics` on the health port (ADR-014): batch persist latency and batch
+size histograms, `collector_batches_total`, `collector_db_errors_total`
+(transient failures — redelivered, never dead-lettered), and
+`collector_rows_dead_lettered_total`. The queue-backlog HPA built on the MQ's
+metrics is documented in `deployments/monitoring/README.md`.

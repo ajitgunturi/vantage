@@ -98,6 +98,10 @@ type fakeMQClient struct {
 	stream *fakeConsumeStream
 }
 
+func (f *fakeMQClient) ProduceBatch(_ context.Context, _ *pb.ProduceBatchRequest, _ ...grpc.CallOption) (*pb.ProduceBatchResponse, error) {
+	return nil, fmt.Errorf("produce batch not supported in fakeMQClient")
+}
+
 func (f *fakeMQClient) Produce(_ context.Context, _ *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
 	return nil, fmt.Errorf("produce not supported in fakeMQClient")
 }

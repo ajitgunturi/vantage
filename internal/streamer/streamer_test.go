@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,17 @@ type fakeProducer struct {
 	mu    sync.Mutex
 	count int
 	msgs  []*pb.TelemetryMessage
+}
+
+// ProduceBatch mirrors the real broker's in-order batch admission by
+// delegating to Produce per message — fake sees the same messages either way.
+func (f *fakeProducer) ProduceBatch(ctx context.Context, in *pb.ProduceBatchRequest, opts ...grpc.CallOption) (*pb.ProduceBatchResponse, error) {
+	for _, m := range in.GetMessages() {
+		if _, err := f.Produce(ctx, &pb.ProduceRequest{Message: m}, opts...); err != nil {
+			return nil, err
+		}
+	}
+	return &pb.ProduceBatchResponse{Accepted: uint32(len(in.GetMessages()))}, nil
 }
 
 func (f *fakeProducer) Produce(_ context.Context, in *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
@@ -47,6 +59,15 @@ type cancelProducer struct {
 	msgs      []*pb.TelemetryMessage
 	cancel    context.CancelFunc
 	threshold int
+}
+
+func (f *cancelProducer) ProduceBatch(ctx context.Context, in *pb.ProduceBatchRequest, opts ...grpc.CallOption) (*pb.ProduceBatchResponse, error) {
+	for _, m := range in.GetMessages() {
+		if _, err := f.Produce(ctx, &pb.ProduceRequest{Message: m}, opts...); err != nil {
+			return nil, err
+		}
+	}
+	return &pb.ProduceBatchResponse{Accepted: uint32(len(in.GetMessages()))}, nil
 }
 
 func (f *cancelProducer) Produce(_ context.Context, in *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
@@ -74,6 +95,15 @@ type erringThenSucceedProducer struct {
 	msgs    []*pb.TelemetryMessage
 }
 
+func (e *erringThenSucceedProducer) ProduceBatch(ctx context.Context, in *pb.ProduceBatchRequest, opts ...grpc.CallOption) (*pb.ProduceBatchResponse, error) {
+	for _, m := range in.GetMessages() {
+		if _, err := e.Produce(ctx, &pb.ProduceRequest{Message: m}, opts...); err != nil {
+			return nil, err
+		}
+	}
+	return &pb.ProduceBatchResponse{Accepted: uint32(len(in.GetMessages()))}, nil
+}
+
 func (e *erringThenSucceedProducer) Produce(_ context.Context, in *pb.ProduceRequest, _ ...grpc.CallOption) (*pb.ProduceResponse, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -97,7 +127,7 @@ func (e *erringThenSucceedProducer) Consume(_ context.Context, _ ...grpc.CallOpt
 // [5]=model_name [6]=hostname [7]=container [8]=pod [9]=namespace [10]=value [11]=labels_raw
 func validRecord(uuid, metricName, value string) []string {
 	return []string{
-		"2025-07-18T20:42:34Z", // col 0: timestamp (discarded by restamp)
+		"2025-07-18T20:42:34Z",  // col 0: timestamp (discarded by restamp)
 		metricName,              // col 1: metric_name
 		"0",                     // col 2: gpu_id (ordinal)
 		"nvidia0",               // col 3: device
@@ -478,4 +508,66 @@ func TestStream_Concurrent10(t *testing.T) {
 	total := fake.count
 	fake.mu.Unlock()
 	require.Equal(t, goroutines*validRows, total, "total published must be 10 × validRowCount")
+}
+
+// --- batched publish tests -------------------------------------------------
+
+// row returns a valid 12-column DCGM CSV row with the given metric value.
+func row(val string) []string {
+	return []string{"ts", "DCGM_FI_DEV_GPU_UTIL", "0", "nvidia0", "GPU-b1",
+		"H100", "host", "", "", "", val, "labels"}
+}
+
+// TestStreamBatched_PublishesAllRows: batch size 2 over 5 rows → 3 batches
+// (2+2+1, the trailing partial flushed at end of pass), all rows delivered
+// in order.
+func TestStreamBatched_PublishesAllRows(t *testing.T) {
+	path := writeTempCSV(t, [][]string{row("1"), row("2"), row("3"), row("4"), row("5")})
+	fake := &fakeProducer{}
+	require.NoError(t, StreamBatched(context.Background(), fake, path, 0, 2, true))
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	require.Len(t, fake.msgs, 5, "every row must publish, including the trailing partial batch")
+	require.Equal(t, float64(1), fake.msgs[0].GetValue(), "first row first")
+	require.Equal(t, float64(5), fake.msgs[4].GetValue(), "order preserved across batches")
+}
+
+// backpressureProducer accepts at most capacity messages per ProduceBatch
+// call, rejecting the suffix — the broker's reject-policy contract.
+type backpressureProducer struct {
+	fakeProducer
+	capacity int
+	calls    atomic.Int64
+}
+
+func (b *backpressureProducer) ProduceBatch(ctx context.Context, in *pb.ProduceBatchRequest, opts ...grpc.CallOption) (*pb.ProduceBatchResponse, error) {
+	b.calls.Add(1)
+	msgs := in.GetMessages()
+	accepted := min(len(msgs), b.capacity)
+	for _, m := range msgs[:accepted] {
+		if _, err := b.Produce(ctx, &pb.ProduceRequest{Message: m}, opts...); err != nil {
+			return nil, err
+		}
+	}
+	return &pb.ProduceBatchResponse{
+		Accepted: uint32(accepted),
+		Rejected: uint32(len(msgs) - accepted),
+	}, nil
+}
+
+// TestStreamBatched_RetriesRejectedSuffix: a broker that accepts 2 per call
+// forces suffix retries; every row must still land exactly once, in order.
+func TestStreamBatched_RetriesRejectedSuffix(t *testing.T) {
+	path := writeTempCSV(t, [][]string{row("1"), row("2"), row("3"), row("4"), row("5")})
+	bp := &backpressureProducer{capacity: 2}
+	require.NoError(t, StreamBatched(context.Background(), bp, path, 0, 5, true))
+
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+	require.Len(t, bp.msgs, 5, "rejected suffixes must be retried to completion")
+	for i, m := range bp.msgs {
+		require.Equal(t, float64(i+1), m.GetValue(), "suffix retries must preserve order")
+	}
+	require.GreaterOrEqual(t, bp.calls.Load(), int64(3), "5 rows at capacity 2 needs >= 3 calls")
 }

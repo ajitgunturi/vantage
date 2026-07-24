@@ -69,6 +69,7 @@ func main() {
 	// Response bodies carry only a status field (T-06-10: no DSN, MQ addr, or config echoed).
 	g.Go(func() error {
 		mux := http.NewServeMux()
+		mux.Handle("GET /metrics", collector.MetricsHandler())
 		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)

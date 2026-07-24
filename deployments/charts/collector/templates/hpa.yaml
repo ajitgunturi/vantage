@@ -1,0 +1,41 @@
+{{- if and .Values.autoscaling .Values.autoscaling.enabled }}
+# Collector HPA — scales on QUEUE DEPTH, not CPU.
+#
+# CPU is the wrong signal for a consumer: a Collector bottlenecked on Postgres
+# round-trips idles its CPU while the broker's backlog grows. The right signal
+# is the broker's total undelivered work (main + retry lanes), exported at
+# mq:/metrics as mq_queue_depth / mq_retry_depth and surfaced to the HPA as
+# the external metric `mq_queue_backlog` via prometheus-adapter
+# (see deployments/monitoring/README.md for the required monitoring stack).
+#
+# Disabled by default: it requires kube-prometheus-stack + prometheus-adapter
+# in the cluster. Enable with --set collector.autoscaling.enabled=true.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-collector
+  labels:
+    app.kubernetes.io/name: collector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-collector
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: mq_queue_backlog
+        target:
+          # Scale out when backlog per Collector replica exceeds this many
+          # messages — e.g. 2000 with two replicas tolerates a 4000 backlog.
+          type: AverageValue
+          averageValue: {{ .Values.autoscaling.targetBacklogPerReplica }}
+  behavior:
+    scaleDown:
+      # Backlog is spiky; don't thrash replicas on a brief drain.
+      stabilizationWindowSeconds: 120
+{{- end }}

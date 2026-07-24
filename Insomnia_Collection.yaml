@@ -1,0 +1,282 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Vantage APIs
+meta:
+  id: wrk_e117a7a3878b444f8201653fb7a36de7
+  created: 1784898178259
+  modified: 1784898178259
+  description: >-
+    All REST endpoints of the vantage pipeline against the local stack
+    (make stack-up — also left running after make smoke). Base URLs live in
+    the Base Environment; set the gpuId path parameter on each telemetry request (Path
+    Parameters tab) — grab a real id from List GPUs. The MQ data plane (Produce/ProduceBatch/Consume)
+    is gRPC on :50051 — use scripts/smoke/mqprobe for that.
+collection:
+  - name: Gateway (:8080)
+    meta:
+      id: fld_a0000000000000000000000000000001
+      created: 1784898197001
+      modified: 1784898197001
+    children:
+      - url: "{{ _.gateway }}/api/v1/gpus"
+        name: List GPUs
+        meta:
+          id: req_a0000000000000000000000000000101
+          created: 1784898197101
+          modified: 1784898197101
+          sortKey: -100
+        method: GET
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
+        name: Telemetry — latest (default page)
+        meta:
+          id: req_a0000000000000000000000000000102
+          created: 1784898197102
+          modified: 1784898197102
+          sortKey: -99
+        method: GET
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
+        name: Telemetry — offset pagination (with total)
+        meta:
+          id: req_a0000000000000000000000000000103
+          created: 1784898197103
+          modified: 1784898197103
+          sortKey: -98
+        method: GET
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
+        parameters:
+          - name: limit
+            value: "100"
+          - name: offset
+            value: "0"
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
+        name: Telemetry — cursor pagination (keyset)
+        meta:
+          id: req_a0000000000000000000000000000104
+          created: 1784898197104
+          modified: 1784898197104
+          sortKey: -97
+          description: >-
+            First call: send with only limit. Then copy pagination.next_cursor
+            from the response into the cursor parameter (enable it) and
+            re-send to walk pages in O(page). cursor and offset are mutually
+            exclusive; cursor mode omits pagination.total by design.
+        method: GET
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
+        parameters:
+          - name: limit
+            value: "100"
+          - name: cursor
+            value: PASTE_next_cursor_HERE
+            disabled: true
+      - url: "{{ _.gateway }}/api/v1/gpus/:gpuId/telemetry"
+        name: Telemetry — time window (RFC3339)
+        meta:
+          id: req_a0000000000000000000000000000105
+          created: 1784898197105
+          modified: 1784898197105
+          sortKey: -96
+        method: GET
+        pathParameters:
+          - name: gpuId
+            value: GPU-00000001
+        parameters:
+          - name: start_time
+            value: "2026-07-24T00:00:00Z"
+          - name: end_time
+            value: "2026-07-25T00:00:00Z"
+      - url: "{{ _.gateway }}/swagger/doc.json"
+        name: OpenAPI spec (auto-generated)
+        meta:
+          id: req_a0000000000000000000000000000106
+          created: 1784898197106
+          modified: 1784898197106
+          sortKey: -95
+        method: GET
+      - url: "{{ _.gateway }}/healthz"
+        name: Healthz
+        meta:
+          id: req_a0000000000000000000000000000107
+          created: 1784898197107
+          modified: 1784898197107
+          sortKey: -94
+        method: GET
+      - url: "{{ _.gateway }}/readyz"
+        name: Readyz (pings Postgres)
+        meta:
+          id: req_a0000000000000000000000000000108
+          created: 1784898197108
+          modified: 1784898197108
+          sortKey: -93
+        method: GET
+      - url: "{{ _.gateway }}/metrics"
+        name: API Gateway Metrics
+        meta:
+          id: req_4491e90f7a12466ab706169df331580d
+          created: 1784898197677
+          modified: 1784898242380
+          isPrivate: false
+          description: Request-latency histogram by route pattern, method, status.
+          sortKey: -92
+        method: GET
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+  - name: MQ control plane (:8081)
+    meta:
+      id: fld_a0000000000000000000000000000002
+      created: 1784898197002
+      modified: 1784898197002
+      description: >-
+        HTTP control plane only — the data plane (Produce, ProduceBatch,
+        bidi Consume) is gRPC on localhost:50051.
+    children:
+      - url: "{{ _.mq }}/api/v1/queue/inspect"
+        name: Queue inspect (all counters)
+        meta:
+          id: req_a0000000000000000000000000000201
+          created: 1784898197201
+          modified: 1784898197201
+          sortKey: -100
+        method: GET
+      - url: "{{ _.mq }}/api/v1/queue/dlq"
+        name: DLQ — list entries
+        meta:
+          id: req_a0000000000000000000000000000202
+          created: 1784898197202
+          modified: 1784898197202
+          sortKey: -99
+        method: GET
+        parameters:
+          - name: limit
+            value: "100"
+      - url: "{{ _.mq }}/api/v1/queue/dlq/replay"
+        name: DLQ — replay all
+        meta:
+          id: req_a0000000000000000000000000000203
+          created: 1784898197203
+          modified: 1784898197203
+          sortKey: -98
+          description: Re-enqueues dead-lettered messages as fresh work (attempts reset, ids preserved).
+        method: POST
+      - url: "{{ _.mq }}/healthz"
+        name: Healthz
+        meta:
+          id: req_a0000000000000000000000000000204
+          created: 1784898197204
+          modified: 1784898197204
+          sortKey: -97
+        method: GET
+      - url: "{{ _.mq }}/readyz"
+        name: Readyz (503 while draining)
+        meta:
+          id: req_a0000000000000000000000000000205
+          created: 1784898197205
+          modified: 1784898197205
+          sortKey: -96
+        method: GET
+      - url: "{{ _.mq }}/metrics"
+        name: MQ Metrics (depth, drops, DLQ, leases)
+        meta:
+          id: req_a0000000000000000000000000000206
+          created: 1784898197206
+          modified: 1784898197206
+          sortKey: -95
+        method: GET
+  - name: Streamer (:9000)
+    meta:
+      id: fld_a0000000000000000000000000000003
+      created: 1784898197003
+      modified: 1784898197003
+    children:
+      - url: "{{ _.streamer }}/healthz"
+        name: Healthz
+        meta:
+          id: req_a0000000000000000000000000000301
+          created: 1784898197301
+          modified: 1784898197301
+          sortKey: -100
+        method: GET
+      - url: "{{ _.streamer }}/readyz"
+        name: Readyz (MQ stream open)
+        meta:
+          id: req_a0000000000000000000000000000302
+          created: 1784898197302
+          modified: 1784898197302
+          sortKey: -99
+        method: GET
+      - url: "{{ _.streamer }}/metrics"
+        name: Streamer Metrics (rows produced, retries)
+        meta:
+          id: req_a0000000000000000000000000000303
+          created: 1784898197303
+          modified: 1784898197303
+          sortKey: -98
+        method: GET
+  - name: Collector (:9001)
+    meta:
+      id: fld_a0000000000000000000000000000004
+      created: 1784898197004
+      modified: 1784898197004
+    children:
+      - url: "{{ _.collector }}/healthz"
+        name: Healthz
+        meta:
+          id: req_a0000000000000000000000000000401
+          created: 1784898197401
+          modified: 1784898197401
+          sortKey: -100
+        method: GET
+      - url: "{{ _.collector }}/readyz"
+        name: Readyz (MQ stream open)
+        meta:
+          id: req_a0000000000000000000000000000402
+          created: 1784898197402
+          modified: 1784898197402
+          sortKey: -99
+        method: GET
+      - url: "{{ _.collector }}/metrics"
+        name: Collector Metrics (batch latency, DB errors, DLQ rows)
+        meta:
+          id: req_a0000000000000000000000000000403
+          created: 1784898197403
+          modified: 1784898197403
+          sortKey: -98
+        method: GET
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_7c6edaae8d3c0e929d95adadba3069a55b7bb464
+    created: 1784898178260
+    modified: 1784898178260
+environments:
+  name: Base Environment
+  meta:
+    id: env_7c6edaae8d3c0e929d95adadba3069a55b7bb464
+    created: 1784898178259
+    modified: 1784898178259
+    isPrivate: false
+  data:
+    gateway: http://localhost:8080
+    mq: http://localhost:8081
+    streamer: http://localhost:9000
+    collector: http://localhost:9001

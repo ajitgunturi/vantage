@@ -332,7 +332,9 @@ func consumeStream(ctx context.Context, client pb.MQServiceClient, pool *pgxpool
 		if len(batch) == 0 {
 			return nil
 		}
+		start := time.Now()
 		deadLettered, err := persistResilient(ctx, pool, batch)
+		observeFlush(start, len(batch), deadLettered, err)
 		if err != nil {
 			// Transient failure — do NOT ack any message. The unacked messages
 			// remain in the broker's lease table and are redelivered on disconnect

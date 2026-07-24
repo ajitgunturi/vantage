@@ -85,6 +85,14 @@ collector:
   # replicaCount: number of Collector replicas (each instance gets unique messages from MQ).
   # Override with --set collector.replicaCount=N for throughput scale-out.
   replicaCount: 1
+  # Queue-depth autoscaling (requires kube-prometheus-stack + prometheus-adapter;
+  # see deployments/monitoring/README.md). CPU is the wrong signal for a
+  # consumer — the HPA targets the external metric mq_queue_backlog instead.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetBacklogPerReplica: 2000
   image:
     repository: vantage/collector
     tag: dev
@@ -159,3 +167,12 @@ migrate:
   image:
     repository: vantage/migrate
     tag: dev
+
+# Nightly telemetry retention (migration 000003 partitioned gpu_metrics by
+# UTC day). Drops whole partitions past the window — O(1), no vacuum churn —
+# and pre-creates upcoming ones so the write path never waits on DDL.
+retention:
+  enabled: true
+  days: 14              # keep this many days of telemetry
+  precreateDays: 3      # daily partitions to create ahead of now
+  schedule: "17 0 * * *"  # nightly, 00:17 UTC (off the top-of-hour herd)

@@ -172,6 +172,38 @@ pass "GET /swagger/doc.json → 200 + valid OpenAPI spec (>= 2 paths)"
 # ── Step 12: print summary ────────────────────────────────────────────────────
 GPU_COUNT=$(pg_exec -tAc "SELECT count(distinct gpu_id) FROM gpu_metrics;" 2>&1 | tr -d '[:space:]')
 echo ""
+# ── Step 12: keyset cursor pagination — walk two disjoint pages ──────────────
+P1=$(curl -sf "http://${GATEWAY_HOST}/api/v1/gpus/${SEED_GPU}/telemetry?limit=2") \
+  || fail "cursor walk: first page failed"
+CURSOR=$(printf '%s' "$P1" | python3 -c "import json,sys; print(json.load(sys.stdin)['pagination'].get('next_cursor',''))")
+[ -n "$CURSOR" ] || fail "first page must carry pagination.next_cursor when more rows exist: $P1"
+P2=$(curl -sf "http://${GATEWAY_HOST}/api/v1/gpus/${SEED_GPU}/telemetry?limit=2&cursor=${CURSOR}") \
+  || fail "cursor walk: second page failed"
+python3 - "$P1" "$P2" <<'PYEOF'
+import json, sys
+p1, p2 = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+k = lambda r: (r["timestamp"], r["metric_name"])
+rows1, rows2 = {k(r) for r in p1["data"]}, {k(r) for r in p2["data"]}
+assert rows1 and rows2, "both pages must have rows"
+assert not rows1 & rows2, f"cursor pages must be disjoint, overlap: {rows1 & rows2}"
+assert "total" not in p2["pagination"], "cursor mode must omit total (keyset skips the O(n) count)"
+PYEOF
+pass "cursor pagination — two disjoint keyset pages, total omitted in cursor mode"
+
+# cursor + offset must be refused (mutually exclusive).
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+  "http://${GATEWAY_HOST}/api/v1/gpus/${SEED_GPU}/telemetry?cursor=${CURSOR}&offset=3")
+[ "$HTTP_CODE" = "400" ] || fail "cursor+offset must 400, got $HTTP_CODE"
+pass "cursor + offset rejected with 400 (mutually exclusive)"
+
+# ── Step 13: gateway Prometheus metrics ──────────────────────────────────────
+GM=$(curl -sf "http://${GATEWAY_HOST}/metrics") || fail "gateway /metrics unreachable"
+printf '%s' "$GM" | grep -q 'gateway_http_request_duration_seconds' \
+  || fail "gateway request-latency histogram missing"
+printf '%s' "$GM" | grep -q 'route="/api/v1/gpus/{id}/telemetry"' \
+  || fail "histogram must label by route PATTERN (bounded cardinality)"
+pass "gateway /metrics — request-latency histogram labelled by route pattern"
+
 echo "${GREEN}${BOLD}PASS${RST} — Phase 4 API Gateway smoke"
 echo "       Gateway:       http://${GATEWAY_HOST}"
 echo "       Distinct GPUs: $GPU_COUNT"

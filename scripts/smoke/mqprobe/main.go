@@ -57,7 +57,7 @@ import (
 func main() {
 	addr := flag.String("grpc", "127.0.0.1:50051", "MQ gRPC address")
 	n := flag.Int("n", 20, "number of messages to produce and/or consume")
-	mode := flag.String("mode", "both", "both | produce | consume | produce-expect-reject | consume-noack")
+	mode := flag.String("mode", "both", "both | produce | produce-batch | consume | produce-expect-reject | consume-noack")
 	credit := flag.Int("credit", 20, "initial flow-control credit (bidi consume window)")
 	timeout := flag.Duration("timeout", 10*time.Second, "overall deadline")
 	hold := flag.Duration("hold", 0, "consume-noack: how long to keep the stream open after leasing")
@@ -96,6 +96,14 @@ func run(addr string, n, credit int, mode string, timeout, hold time.Duration) e
 		}
 		fmt.Printf("mqprobe: OK — consumed %d via %s\n", got, addr)
 		return nil
+	case "produce-batch":
+		resp, err := client.ProduceBatch(ctx, &pb.ProduceBatchRequest{Messages: batchMsgs(n)})
+		if err != nil {
+			return fmt.Errorf("produce batch: %w", err)
+		}
+		fmt.Printf("mqprobe: OK — batch of %d: accepted %d, rejected %d via %s\n",
+			n, resp.GetAccepted(), resp.GetRejected(), addr)
+		return nil
 	case "produce-expect-reject":
 		accepted, err := produceExpectReject(ctx, client, n)
 		if err != nil {
@@ -113,6 +121,21 @@ func run(addr string, n, credit int, mode string, timeout, hold time.Duration) e
 	default:
 		return fmt.Errorf("unknown -mode %q (want both|produce|consume|produce-expect-reject|consume-noack)", mode)
 	}
+}
+
+// batchMsgs builds n DCGM-shaped telemetry messages for a single ProduceBatch.
+func batchMsgs(n int) []*pb.TelemetryMessage {
+	out := make([]*pb.TelemetryMessage, n)
+	for i := range out {
+		out[i] = &pb.TelemetryMessage{
+			Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
+			MetricName: "DCGM_FI_DEV_GPU_UTIL",
+			GpuId:      "0",
+			Uuid:       fmt.Sprintf("GPU-smoke-batch-%04d", i),
+			Value:      float64(i),
+		}
+	}
+	return out
 }
 
 // produceExpectReject produces up to n messages EXPECTING the broker to refuse

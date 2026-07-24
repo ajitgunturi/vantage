@@ -1,0 +1,23 @@
+# prometheus-adapter values — surfaces the MQ backlog to the HPA API.
+#
+# Install (after kube-prometheus-stack, see README.md):
+#   helm install prometheus-adapter prometheus-community/prometheus-adapter \
+#     -n monitoring -f deployments/monitoring/prometheus-adapter-values.yaml
+prometheus:
+  # kube-prometheus-stack's default in-cluster Prometheus service.
+  url: http://prometheus-kube-prometheus-prometheus.monitoring.svc
+  port: 9090
+
+rules:
+  external:
+    # mq_queue_backlog = everything the broker still owes consumers:
+    # first-delivery backlog (mq_queue_depth) + redeliveries waiting in the
+    # retry lane (mq_retry_depth). The Collector HPA scales on this.
+    - seriesQuery: 'mq_queue_depth{namespace!=""}'
+      resources:
+        overrides:
+          namespace: {resource: namespace}
+      name:
+        as: mq_queue_backlog
+      metricsQuery: >-
+        sum(mq_queue_depth{<<.LabelMatchers>>}) + sum(mq_retry_depth{<<.LabelMatchers>>})

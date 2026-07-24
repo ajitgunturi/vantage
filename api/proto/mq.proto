@@ -47,6 +47,22 @@ message ProduceRequest {
     TelemetryMessage message = 1;
 }
 
+message ProduceBatchRequest {
+    // Up to 1000 messages, enqueued in order. Larger batches are refused with
+    // InvalidArgument (bound the per-RPC memory and lock hold).
+    repeated TelemetryMessage messages = 1;
+}
+
+message ProduceBatchResponse {
+    // accepted counts messages admitted to the queue, in batch order.
+    // rejected counts the SUFFIX refused under backpressure (reject/block
+    // overflow policies): messages[accepted:] were not enqueued and should be
+    // retried after backoff. accepted + rejected == len(messages).
+    // Under the default drop-oldest policy rejected is always 0.
+    uint32 accepted = 1;
+    uint32 rejected = 2;
+}
+
 message ProduceResponse {
     // Always true today: enqueue succeeds (drop-oldest may have silently evicted the oldest
     // buffered message to make room, and that eviction is NOT signaled here). Validation
@@ -75,6 +91,12 @@ service MQService {
     // Produce enqueues a single telemetry message.
     // Never blocks. Drop-oldest fires silently when the buffer is full.
     rpc Produce(ProduceRequest) returns (ProduceResponse);
+
+    // ProduceBatch enqueues up to 1000 messages in one round-trip — the
+    // high-throughput publish path (one unary Produce per CSV row bottlenecks
+    // producers on RPC rate, not broker capacity). Partial-accept semantics:
+    // see ProduceBatchResponse. Unavailable while draining.
+    rpc ProduceBatch(ProduceBatchRequest) returns (ProduceBatchResponse);
 
     // Consume is a bidirectional stream implementing broker-side at-least-once delivery
     // (D-03, ADR-001). Server→client streams TelemetryMessage with broker-assigned id;

@@ -276,3 +276,22 @@ func TestGetTelemetry_BadOffset_Unit(t *testing.T) {
 		})
 	}
 }
+
+// TestGetTelemetry_CursorValidation covers the keyset-mode 400 paths: a
+// cursor combined with offset, and a malformed cursor token. Both fail before
+// any pool access (nil pool).
+func TestGetTelemetry_CursorValidation(t *testing.T) {
+	router := gateway.NewRouter(nil, gateway.Config{Addr: ":0", MaxRows: 100})
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet,
+		"/api/v1/gpus/GPU-x/telemetry?cursor=abc&offset=10", nil))
+	require.Equal(t, http.StatusBadRequest, rr.Code, "cursor and offset are mutually exclusive")
+	require.Contains(t, rr.Body.String(), "mutually exclusive")
+
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet,
+		"/api/v1/gpus/GPU-x/telemetry?cursor=%21%21not-a-cursor", nil))
+	require.Equal(t, http.StatusBadRequest, rr.Code, "malformed cursor must 400")
+	require.Contains(t, rr.Body.String(), "invalid cursor")
+}

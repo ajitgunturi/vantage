@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ajitg/vantage/pkg/db"
+	"github.com/ajitg/vantage/pkg/models"
 )
 
 // GpuMetricResponse is the JSON representation returned by
@@ -52,11 +53,19 @@ type TelemetryPage struct {
 // and the two queries are not transactionally paired. has_next remains derived
 // from the limit+1 sentinel on the page query itself, so it is always consistent
 // with the returned data.
+// Keyset (cursor) mode: pass ?cursor=<next_cursor> instead of ?offset. The
+// cursor is an opaque token naming the last row already seen; page cost is
+// O(page) instead of OFFSET's O(offset) index walk, and pages are stable
+// under live ingest. In cursor mode Total is omitted (computing it would
+// reintroduce the full O(n) scan keyset exists to avoid); NextCursor is
+// emitted in BOTH modes whenever another page exists, so offset clients can
+// migrate mid-walk.
 type PaginationMeta struct {
-	Limit   int   `json:"limit"`
-	Offset  int   `json:"offset"`
-	Total   int64 `json:"total"`
-	HasNext bool  `json:"has_next"`
+	Limit      int    `json:"limit"`
+	Offset     int    `json:"offset"`
+	Total      *int64 `json:"total,omitempty"`
+	HasNext    bool   `json:"has_next"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 // writeJSON sets Content-Type to application/json and encodes v into w.
@@ -107,14 +116,17 @@ func ReadyzHandler(pool *pgxpool.Pool) http.HandlerFunc {
 // @Description Returns time-series metric rows for a GPU ordered newest-first (API-02).
 // @Description Optional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).
 // @Description Use limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).
-// @Description pagination.total carries the total row count for the filter; pagination.has_next signals more pages.
+// @Description In offset mode pagination.total carries the total row count for the filter; pagination.has_next signals more pages.
+// @Description Prefer cursor pagination for deep walks: pass pagination.next_cursor back as ?cursor — O(page) cost,
+// @Description stable under live ingest, no total (mutually exclusive with offset).
 // @Tags        gpus
 // @Produce     json
 // @Param       id         path     string  true  "GPU UUID"
 // @Param       start_time query    string  false "Inclusive lower bound (RFC3339); omit for unbounded"
 // @Param       end_time   query    string  false "Inclusive upper bound (RFC3339); omit for unbounded"
 // @Param       limit      query    int     false "Max rows to return (default/ceiling: VANTAGE_GATEWAY_MAX_ROWS)" minimum(1)
-// @Param       offset     query    int     false "Row offset for pagination (default: 0)" minimum(0)
+// @Param       offset     query    int     false "Row offset for pagination (default: 0; mutually exclusive with cursor)" minimum(0)
+// @Param       cursor     query    string  false "Opaque keyset cursor from a previous page's pagination.next_cursor"
 // @Success     200  {object}  TelemetryPage
 // @Failure     400  {object}  ErrorResponse  "malformed start_time, end_time, limit, or offset"
 // @Failure     404  {object}  ErrorResponse  "gpu_id not found"
@@ -171,6 +183,23 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 			offset = n
 		}
 
+		// Keyset mode: an opaque cursor from a previous page's next_cursor.
+		// Mutually exclusive with offset — the two name positions in
+		// incompatible ways.
+		var cursor *telemetryCursor
+		if v := r.URL.Query().Get("cursor"); v != "" {
+			if r.URL.Query().Get("offset") != "" {
+				writeError(w, http.StatusBadRequest, "cursor and offset are mutually exclusive")
+				return
+			}
+			c, err := decodeCursor(v)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid cursor: pass pagination.next_cursor verbatim")
+				return
+			}
+			cursor = &c
+		}
+
 		// Nil pool guard — returns application/json 500 instead of panicking
 		// through chi Recoverer (which would emit text/plain), preserving the
 		// Content-Type contract in unit tests that pass nil pool.
@@ -196,21 +225,31 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 			return
 		}
 
-		// Total row count for the filter (gpu_id + window) — backs pagination.total
-		// (ADR-010 amendment). COUNT(*) rides the composite index; at fixture scale
-		// this is an index-only scan.
-		total, err := db.TelemetryCount(dbCtx, pool, id, start, end)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to count telemetry")
-			return
+		// Total row count backs pagination.total in OFFSET mode only (ADR-010).
+		// Cursor mode deliberately skips it: the COUNT(*) full-filter scan is
+		// exactly the O(n)-per-page cost keyset pagination exists to avoid.
+		var total *int64
+		if cursor == nil {
+			n, err := db.TelemetryCount(dbCtx, pool, id, start, end)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to count telemetry")
+				return
+			}
+			total = &n
 		}
 
 		// Fetch limit+1 rows to detect has_next via the sentinel (API-05,
-		// RESEARCH Pitfall 5) — kept alongside total so has_next stays consistent
-		// with the page data even under live ingest (the count above may lag).
-		// limit and offset are pgx $N placeholders (T-06-03).
-		metrics, err := db.Telemetry(dbCtx, pool, id, start, end, limit+1, offset)
-		if err != nil {
+		// RESEARCH Pitfall 5) — always derived from the page query itself so it
+		// stays consistent with the returned data even under live ingest.
+		// All values are pgx $N placeholders (T-06-03).
+		var metrics []models.GpuMetric
+		var err2 error
+		if cursor != nil {
+			metrics, err2 = db.TelemetryAfter(dbCtx, pool, id, start, end, cursor.TS, cursor.Metric, limit+1)
+		} else {
+			metrics, err2 = db.Telemetry(dbCtx, pool, id, start, end, limit+1, offset)
+		}
+		if err2 != nil {
 			writeError(w, http.StatusInternalServerError, "failed to fetch telemetry")
 			return
 		}
@@ -220,6 +259,15 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 		hasNext := len(metrics) > limit
 		if hasNext {
 			metrics = metrics[:limit]
+		}
+
+		// next_cursor names the last row of this page — emitted in both modes
+		// whenever another page exists, so offset clients can switch to keyset
+		// walks without restarting.
+		nextCursor := ""
+		if hasNext && len(metrics) > 0 {
+			last := metrics[len(metrics)-1]
+			nextCursor = encodeCursor(telemetryCursor{TS: last.Timestamp, Metric: last.MetricName})
 		}
 
 		// Map domain structs to HTTP response DTOs (RESEARCH Pattern 6: JSON tags
@@ -241,8 +289,11 @@ func GetTelemetry(pool *pgxpool.Pool, maxRows int) http.HandlerFunc {
 			})
 		}
 		writeJSON(w, http.StatusOK, TelemetryPage{
-			Data:       resp,
-			Pagination: PaginationMeta{Limit: limit, Offset: offset, Total: total, HasNext: hasNext},
+			Data: resp,
+			Pagination: PaginationMeta{
+				Limit: limit, Offset: offset, Total: total,
+				HasNext: hasNext, NextCursor: nextCursor,
+			},
 		})
 	}
 }

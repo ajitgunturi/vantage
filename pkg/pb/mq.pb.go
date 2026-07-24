@@ -235,6 +235,109 @@ func (x *ProduceRequest) GetMessage() *TelemetryMessage {
 	return nil
 }
 
+type ProduceBatchRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Up to 1000 messages, enqueued in order. Larger batches are refused with
+	// InvalidArgument (bound the per-RPC memory and lock hold).
+	Messages      []*TelemetryMessage `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProduceBatchRequest) Reset() {
+	*x = ProduceBatchRequest{}
+	mi := &file_mq_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProduceBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProduceBatchRequest) ProtoMessage() {}
+
+func (x *ProduceBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mq_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProduceBatchRequest.ProtoReflect.Descriptor instead.
+func (*ProduceBatchRequest) Descriptor() ([]byte, []int) {
+	return file_mq_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ProduceBatchRequest) GetMessages() []*TelemetryMessage {
+	if x != nil {
+		return x.Messages
+	}
+	return nil
+}
+
+type ProduceBatchResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// accepted counts messages admitted to the queue, in batch order.
+	// rejected counts the SUFFIX refused under backpressure (reject/block
+	// overflow policies): messages[accepted:] were not enqueued and should be
+	// retried after backoff. accepted + rejected == len(messages).
+	// Under the default drop-oldest policy rejected is always 0.
+	Accepted      uint32 `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Rejected      uint32 `protobuf:"varint,2,opt,name=rejected,proto3" json:"rejected,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProduceBatchResponse) Reset() {
+	*x = ProduceBatchResponse{}
+	mi := &file_mq_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProduceBatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProduceBatchResponse) ProtoMessage() {}
+
+func (x *ProduceBatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mq_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProduceBatchResponse.ProtoReflect.Descriptor instead.
+func (*ProduceBatchResponse) Descriptor() ([]byte, []int) {
+	return file_mq_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ProduceBatchResponse) GetAccepted() uint32 {
+	if x != nil {
+		return x.Accepted
+	}
+	return 0
+}
+
+func (x *ProduceBatchResponse) GetRejected() uint32 {
+	if x != nil {
+		return x.Rejected
+	}
+	return 0
+}
+
 type ProduceResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Always true today: enqueue succeeds (drop-oldest may have silently evicted the oldest
@@ -249,7 +352,7 @@ type ProduceResponse struct {
 
 func (x *ProduceResponse) Reset() {
 	*x = ProduceResponse{}
-	mi := &file_mq_proto_msgTypes[2]
+	mi := &file_mq_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -261,7 +364,7 @@ func (x *ProduceResponse) String() string {
 func (*ProduceResponse) ProtoMessage() {}
 
 func (x *ProduceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mq_proto_msgTypes[2]
+	mi := &file_mq_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -274,7 +377,7 @@ func (x *ProduceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProduceResponse.ProtoReflect.Descriptor instead.
 func (*ProduceResponse) Descriptor() ([]byte, []int) {
-	return file_mq_proto_rawDescGZIP(), []int{2}
+	return file_mq_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ProduceResponse) GetAccepted() bool {
@@ -306,7 +409,7 @@ type ConsumeClientMsg struct {
 
 func (x *ConsumeClientMsg) Reset() {
 	*x = ConsumeClientMsg{}
-	mi := &file_mq_proto_msgTypes[3]
+	mi := &file_mq_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -318,7 +421,7 @@ func (x *ConsumeClientMsg) String() string {
 func (*ConsumeClientMsg) ProtoMessage() {}
 
 func (x *ConsumeClientMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_mq_proto_msgTypes[3]
+	mi := &file_mq_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -331,7 +434,7 @@ func (x *ConsumeClientMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsumeClientMsg.ProtoReflect.Descriptor instead.
 func (*ConsumeClientMsg) Descriptor() ([]byte, []int) {
-	return file_mq_proto_rawDescGZIP(), []int{3}
+	return file_mq_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ConsumeClientMsg) GetAckId() uint64 {
@@ -380,16 +483,22 @@ const file_mq_proto_rawDesc = "" +
 	"\x02id\x18\r \x01(\x04R\x02id\x12+\n" +
 	"\x11delivery_attempts\x18\x0e \x01(\rR\x10deliveryAttempts\"C\n" +
 	"\x0eProduceRequest\x121\n" +
-	"\amessage\x18\x01 \x01(\v2\x17.mq.v1.TelemetryMessageR\amessage\"-\n" +
+	"\amessage\x18\x01 \x01(\v2\x17.mq.v1.TelemetryMessageR\amessage\"J\n" +
+	"\x13ProduceBatchRequest\x123\n" +
+	"\bmessages\x18\x01 \x03(\v2\x17.mq.v1.TelemetryMessageR\bmessages\"N\n" +
+	"\x14ProduceBatchResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\rR\baccepted\x12\x1a\n" +
+	"\brejected\x18\x02 \x01(\rR\brejected\"-\n" +
 	"\x0fProduceResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\"b\n" +
 	"\x10ConsumeClientMsg\x12\x15\n" +
 	"\x06ack_id\x18\x01 \x01(\x04R\x05ackId\x12\x16\n" +
 	"\x06credit\x18\x02 \x01(\x05R\x06credit\x12\x1f\n" +
 	"\vconsumer_id\x18\x03 \x01(\tR\n" +
-	"consumerId2\x86\x01\n" +
+	"consumerId2\xcf\x01\n" +
 	"\tMQService\x128\n" +
-	"\aProduce\x12\x15.mq.v1.ProduceRequest\x1a\x16.mq.v1.ProduceResponse\x12?\n" +
+	"\aProduce\x12\x15.mq.v1.ProduceRequest\x1a\x16.mq.v1.ProduceResponse\x12G\n" +
+	"\fProduceBatch\x12\x1a.mq.v1.ProduceBatchRequest\x1a\x1b.mq.v1.ProduceBatchResponse\x12?\n" +
 	"\aConsume\x12\x17.mq.v1.ConsumeClientMsg\x1a\x17.mq.v1.TelemetryMessage(\x010\x01B!Z\x1fgithub.com/ajitg/vantage/pkg/pbb\x06proto3"
 
 var (
@@ -404,24 +513,29 @@ func file_mq_proto_rawDescGZIP() []byte {
 	return file_mq_proto_rawDescData
 }
 
-var file_mq_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_mq_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_mq_proto_goTypes = []any{
-	(*TelemetryMessage)(nil), // 0: mq.v1.TelemetryMessage
-	(*ProduceRequest)(nil),   // 1: mq.v1.ProduceRequest
-	(*ProduceResponse)(nil),  // 2: mq.v1.ProduceResponse
-	(*ConsumeClientMsg)(nil), // 3: mq.v1.ConsumeClientMsg
+	(*TelemetryMessage)(nil),     // 0: mq.v1.TelemetryMessage
+	(*ProduceRequest)(nil),       // 1: mq.v1.ProduceRequest
+	(*ProduceBatchRequest)(nil),  // 2: mq.v1.ProduceBatchRequest
+	(*ProduceBatchResponse)(nil), // 3: mq.v1.ProduceBatchResponse
+	(*ProduceResponse)(nil),      // 4: mq.v1.ProduceResponse
+	(*ConsumeClientMsg)(nil),     // 5: mq.v1.ConsumeClientMsg
 }
 var file_mq_proto_depIdxs = []int32{
 	0, // 0: mq.v1.ProduceRequest.message:type_name -> mq.v1.TelemetryMessage
-	1, // 1: mq.v1.MQService.Produce:input_type -> mq.v1.ProduceRequest
-	3, // 2: mq.v1.MQService.Consume:input_type -> mq.v1.ConsumeClientMsg
-	2, // 3: mq.v1.MQService.Produce:output_type -> mq.v1.ProduceResponse
-	0, // 4: mq.v1.MQService.Consume:output_type -> mq.v1.TelemetryMessage
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // 1: mq.v1.ProduceBatchRequest.messages:type_name -> mq.v1.TelemetryMessage
+	1, // 2: mq.v1.MQService.Produce:input_type -> mq.v1.ProduceRequest
+	2, // 3: mq.v1.MQService.ProduceBatch:input_type -> mq.v1.ProduceBatchRequest
+	5, // 4: mq.v1.MQService.Consume:input_type -> mq.v1.ConsumeClientMsg
+	4, // 5: mq.v1.MQService.Produce:output_type -> mq.v1.ProduceResponse
+	3, // 6: mq.v1.MQService.ProduceBatch:output_type -> mq.v1.ProduceBatchResponse
+	0, // 7: mq.v1.MQService.Consume:output_type -> mq.v1.TelemetryMessage
+	5, // [5:8] is the sub-list for method output_type
+	2, // [2:5] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_mq_proto_init() }
@@ -435,7 +549,7 @@ func file_mq_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mq_proto_rawDesc), len(file_mq_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

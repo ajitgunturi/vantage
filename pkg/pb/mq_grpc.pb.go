@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MQService_Produce_FullMethodName = "/mq.v1.MQService/Produce"
-	MQService_Consume_FullMethodName = "/mq.v1.MQService/Consume"
+	MQService_Produce_FullMethodName      = "/mq.v1.MQService/Produce"
+	MQService_ProduceBatch_FullMethodName = "/mq.v1.MQService/ProduceBatch"
+	MQService_Consume_FullMethodName      = "/mq.v1.MQService/Consume"
 )
 
 // MQServiceClient is the client API for MQService service.
@@ -30,6 +31,11 @@ type MQServiceClient interface {
 	// Produce enqueues a single telemetry message.
 	// Never blocks. Drop-oldest fires silently when the buffer is full.
 	Produce(ctx context.Context, in *ProduceRequest, opts ...grpc.CallOption) (*ProduceResponse, error)
+	// ProduceBatch enqueues up to 1000 messages in one round-trip — the
+	// high-throughput publish path (one unary Produce per CSV row bottlenecks
+	// producers on RPC rate, not broker capacity). Partial-accept semantics:
+	// see ProduceBatchResponse. Unavailable while draining.
+	ProduceBatch(ctx context.Context, in *ProduceBatchRequest, opts ...grpc.CallOption) (*ProduceBatchResponse, error)
 	// Consume is a bidirectional stream implementing broker-side at-least-once delivery
 	// (D-03, ADR-001). Server→client streams TelemetryMessage with broker-assigned id;
 	// client→server streams ConsumeClientMsg carrying initial credit then per-message acks.
@@ -62,6 +68,16 @@ func (c *mQServiceClient) Produce(ctx context.Context, in *ProduceRequest, opts 
 	return out, nil
 }
 
+func (c *mQServiceClient) ProduceBatch(ctx context.Context, in *ProduceBatchRequest, opts ...grpc.CallOption) (*ProduceBatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProduceBatchResponse)
+	err := c.cc.Invoke(ctx, MQService_ProduceBatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *mQServiceClient) Consume(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsumeClientMsg, TelemetryMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MQService_ServiceDesc.Streams[0], MQService_Consume_FullMethodName, cOpts...)
@@ -82,6 +98,11 @@ type MQServiceServer interface {
 	// Produce enqueues a single telemetry message.
 	// Never blocks. Drop-oldest fires silently when the buffer is full.
 	Produce(context.Context, *ProduceRequest) (*ProduceResponse, error)
+	// ProduceBatch enqueues up to 1000 messages in one round-trip — the
+	// high-throughput publish path (one unary Produce per CSV row bottlenecks
+	// producers on RPC rate, not broker capacity). Partial-accept semantics:
+	// see ProduceBatchResponse. Unavailable while draining.
+	ProduceBatch(context.Context, *ProduceBatchRequest) (*ProduceBatchResponse, error)
 	// Consume is a bidirectional stream implementing broker-side at-least-once delivery
 	// (D-03, ADR-001). Server→client streams TelemetryMessage with broker-assigned id;
 	// client→server streams ConsumeClientMsg carrying initial credit then per-message acks.
@@ -106,6 +127,9 @@ type UnimplementedMQServiceServer struct{}
 
 func (UnimplementedMQServiceServer) Produce(context.Context, *ProduceRequest) (*ProduceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Produce not implemented")
+}
+func (UnimplementedMQServiceServer) ProduceBatch(context.Context, *ProduceBatchRequest) (*ProduceBatchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProduceBatch not implemented")
 }
 func (UnimplementedMQServiceServer) Consume(grpc.BidiStreamingServer[ConsumeClientMsg, TelemetryMessage]) error {
 	return status.Error(codes.Unimplemented, "method Consume not implemented")
@@ -149,6 +173,24 @@ func _MQService_Produce_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MQService_ProduceBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProduceBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MQServiceServer).ProduceBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MQService_ProduceBatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MQServiceServer).ProduceBatch(ctx, req.(*ProduceBatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MQService_Consume_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(MQServiceServer).Consume(&grpc.GenericServerStream[ConsumeClientMsg, TelemetryMessage]{ServerStream: stream})
 }
@@ -166,6 +208,10 @@ var MQService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Produce",
 			Handler:    _MQService_Produce_Handler,
+		},
+		{
+			MethodName: "ProduceBatch",
+			Handler:    _MQService_ProduceBatch_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

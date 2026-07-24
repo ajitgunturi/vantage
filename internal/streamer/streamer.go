@@ -61,7 +61,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	client := pb.NewMQServiceClient(conn)
 	// Mark ready: MQ is dialed and we are entering the streaming loop.
 	r.ready.Store(true)
-	return Stream(ctx, client, r.cfg.CSVPath, r.cfg.LoopDelayMS, false)
+	return StreamBatched(ctx, client, r.cfg.CSVPath, r.cfg.LoopDelayMS, r.cfg.BatchSize, false)
 }
 
 // dialMQ dials the MQ gRPC server with insecure transport and keepalive
@@ -149,6 +149,46 @@ func recordToProto(record []string) (*pb.TelemetryMessage, error) {
 // Produce failures (M-6 fix). Backoff: base 100ms, cap 5s, ctx-aware sleep.
 // Returns nil when the message is accepted, or ctx.Err() if the context is
 // cancelled before a successful Produce. One MQ blip must NOT kill the instance.
+// produceBatchWithRetry publishes msgs in order via ProduceBatch. Transient
+// RPC failures retry the whole remainder with exponential backoff; broker
+// backpressure (a rejected suffix) retries just that suffix. Backoff resets
+// whenever the broker accepts progress. Returns nil once every message is
+// accepted, or ctx.Err() on cancellation.
+func produceBatchWithRetry(ctx context.Context, client pb.MQServiceClient, msgs []*pb.TelemetryMessage) error {
+	backoff := 100 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+	rest := msgs
+	for len(rest) > 0 {
+		resp, err := client.ProduceBatch(ctx, &pb.ProduceBatchRequest{Messages: rest})
+		switch {
+		case err == nil:
+			accepted := int(resp.GetAccepted())
+			rowsProducedTotal.Add(float64(accepted))
+			rest = rest[accepted:]
+			if len(rest) == 0 {
+				return nil
+			}
+			if accepted > 0 {
+				backoff = 100 * time.Millisecond // progress — reset backoff
+			}
+			slog.Warn("batch partially accepted — backing off on the rejected suffix",
+				"accepted", accepted, "remaining", len(rest), "backoff", backoff)
+		case ctx.Err() != nil:
+			return ctx.Err()
+		default:
+			slog.Warn("produce batch failed, retrying", "remaining", len(rest), "backoff", backoff, "error", err)
+		}
+		produceRetriesTotal.Inc()
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		backoff = min(backoff*2, maxBackoff)
+	}
+	return nil
+}
+
 func produceWithRetry(ctx context.Context, client pb.MQServiceClient, msg *pb.TelemetryMessage) error {
 	backoff := 100 * time.Millisecond
 	const maxBackoff = 5 * time.Second
@@ -161,6 +201,7 @@ func produceWithRetry(ctx context.Context, client pb.MQServiceClient, msg *pb.Te
 			return ctx.Err()
 		}
 		slog.Warn("produce failed, retrying", "backoff", backoff, "error", err)
+		produceRetriesTotal.Inc()
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -170,12 +211,37 @@ func produceWithRetry(ctx context.Context, client pb.MQServiceClient, msg *pb.Te
 	}
 }
 
+// Stream publishes one row per unary Produce RPC — the batchSize=1 path.
+// Production uses StreamBatched (one ProduceBatch RPC per STREAMER_BATCH_SIZE
+// rows); this wrapper keeps the single-row contract for tests and probes.
 func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loopDelayMS int, once bool) error {
+	return StreamBatched(ctx, client, csvPath, loopDelayMS, 1, once)
+}
+
+// StreamBatched reads the CSV forever (or once), restamping each row at read
+// time (RFC3339Nano, STREAM-02) and publishing in batches of batchSize rows —
+// one ProduceBatch round-trip per batch instead of one Produce per row, which
+// bottlenecked throughput on client RPC rate rather than broker capacity.
+// batchSize <= 1 degrades to the unary per-row path. A partial batch is
+// flushed at the end of every CSV pass, so `once` still publishes every row.
+func StreamBatched(ctx context.Context, client pb.MQServiceClient, csvPath string, loopDelayMS, batchSize int, once bool) error {
 	f, err := os.Open(csvPath)
 	if err != nil {
 		return fmt.Errorf("streamer: open csv: %w", err)
 	}
 	defer f.Close() //nolint:errcheck
+
+	batch := make([]*pb.TelemetryMessage, 0, max(batchSize, 1))
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := produceBatchWithRetry(ctx, client, batch); err != nil {
+			return err // only ctx.Err() reaches here
+		}
+		batch = batch[:0]
+		return nil
+	}
 
 	for {
 		// Check cancellation at the top of each pass before seeking.
@@ -200,17 +266,29 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 				// Malformed row (wrong column count or parse error) — skip and log.
 				// csv.ParseError with Err=csv.ErrFieldCount is the common case here.
 				slog.Warn("skip malformed row", "error", err)
+				rowsSkippedTotal.Inc()
 				continue
 			}
 			msg, err := recordToProto(record)
 			if err != nil {
 				slog.Warn("skip bad record", "error", err)
+				rowsSkippedTotal.Inc()
 				continue
 			}
-			// produceWithRetry retries on transient MQ failures so a single blip
-			// does not kill the instance (M-6). Returns only on success or ctx cancel.
-			if err := produceWithRetry(ctx, client, msg); err != nil {
-				return err // only ctx.Err() reaches here
+			if batchSize <= 1 {
+				// Unary path: produceWithRetry retries on transient MQ failures
+				// so a single blip does not kill the instance (M-6).
+				if err := produceWithRetry(ctx, client, msg); err != nil {
+					return err // only ctx.Err() reaches here
+				}
+				rowsProducedTotal.Inc()
+			} else {
+				batch = append(batch, msg)
+				if len(batch) >= batchSize {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
 			}
 			if loopDelayMS > 0 {
 				// ctx-aware sleep: cancel propagates immediately (Streamer MINOR).
@@ -220,6 +298,11 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 					return ctx.Err()
 				}
 			}
+		}
+		// Flush the partial batch at the end of each pass — rows must not sit
+		// unpublished across the seek-to-start (and `once` must publish all).
+		if err := flush(); err != nil {
+			return err
 		}
 		if once {
 			return nil

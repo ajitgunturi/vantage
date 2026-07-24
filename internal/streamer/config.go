@@ -28,6 +28,11 @@ type Config struct {
 	// HealthAddr is the TCP address for the HTTP health listener (/healthz, /readyz).
 	// Env: STREAMER_HEALTH_ADDR (default ":9000").
 	HealthAddr string
+	// BatchSize is how many rows are published per ProduceBatch round-trip.
+	// One unary RPC per row bottlenecks throughput on client RPC rate; 100-row
+	// batches cut round-trips 100x. 1 = legacy per-row unary Produce.
+	// Env: STREAMER_BATCH_SIZE (default 100; invalid/non-positive keeps default).
+	BatchSize int
 }
 
 // FromEnv constructs a Config from environment variables, applying defaults for
@@ -44,6 +49,12 @@ func FromEnv() Config {
 		MQAddr:      ":50051",
 		LoopDelayMS: 1,
 		HealthAddr:  ":9000",
+		BatchSize:   100,
+	}
+	if v := os.Getenv("STREAMER_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.BatchSize = n
+		}
 	}
 	if v := os.Getenv("STREAMER_MQ_ADDR"); v != "" {
 		cfg.MQAddr = v

@@ -46,7 +46,7 @@ const docTemplate = `{
         },
         "/gpus/{id}/telemetry": {
             "get": {
-                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nUse limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).\npagination.total carries the total row count for the filter; pagination.has_next signals more pages.",
+                "description": "Returns time-series metric rows for a GPU ordered newest-first (API-02).\nOptional ?start_time and/or ?end_time (RFC3339) filter the window (API-03, OQ-3).\nUse limit and offset for pagination; result is wrapped in a TelemetryPage envelope (API-05).\nIn offset mode pagination.total carries the total row count for the filter; pagination.has_next signals more pages.\nPrefer cursor pagination for deep walks: pass pagination.next_cursor back as ?cursor — O(page) cost,\nstable under live ingest, no total (mutually exclusive with offset).",
                 "produces": [
                     "application/json"
                 ],
@@ -84,8 +84,14 @@ const docTemplate = `{
                     {
                         "minimum": 0,
                         "type": "integer",
-                        "description": "Row offset for pagination (default: 0)",
+                        "description": "Row offset for pagination (default: 0; mutually exclusive with cursor)",
                         "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque keyset cursor from a previous page's pagination.next_cursor",
+                        "name": "cursor",
                         "in": "query"
                     }
                 ],
@@ -173,6 +179,9 @@ const docTemplate = `{
                 },
                 "limit": {
                     "type": "integer"
+                },
+                "next_cursor": {
+                    "type": "string"
                 },
                 "offset": {
                     "type": "integer"

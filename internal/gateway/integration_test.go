@@ -470,7 +470,8 @@ func TestGetTelemetry_Pagination(t *testing.T) {
 			"has_next must be true when 3 rows remain after offset=0")
 		assert.Equal(t, 2, page.Pagination.Limit)
 		assert.Equal(t, 0, page.Pagination.Offset)
-		assert.Equal(t, int64(5), page.Pagination.Total,
+		require.NotNil(t, page.Pagination.Total, "offset mode must include total")
+		assert.Equal(t, int64(5), *page.Pagination.Total,
 			"total must report all 5 rows matching the filter, not the page size")
 	})
 
@@ -491,7 +492,8 @@ func TestGetTelemetry_Pagination(t *testing.T) {
 			"has_next must be false when at the last page")
 		assert.Equal(t, 2, page.Pagination.Limit)
 		assert.Equal(t, 4, page.Pagination.Offset)
-		assert.Equal(t, int64(5), page.Pagination.Total,
+		require.NotNil(t, page.Pagination.Total, "offset mode must include total")
+		assert.Equal(t, int64(5), *page.Pagination.Total,
 			"total must stay 5 regardless of the offset window")
 	})
 }
