@@ -14,12 +14,52 @@ as the external metric `mq_queue_backlog`.
 
 ## Setup (kind / any cluster)
 
+> **Important:** the vantage pods expose metrics via `prometheus.io/*` **pod annotations**
+> only — no ServiceMonitor/PodMonitor CRDs are shipped (that is future work). Out of the box,
+> kube-prometheus-stack discovers targets exclusively through those CRDs and **ignores
+> annotations**, so it must be installed with an `additionalScrapeConfigs` entry that implements
+> annotation-based discovery (step 1 below). Without it, no vantage metrics are scraped and the
+> HPA metric never materializes.
+
+First, write the annotation-scrape values file:
+
+```yaml
+# scrape-values.yaml — annotation-based pod discovery for kube-prometheus-stack
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs:
+      - job_name: vantage-annotated-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Keep only pods that opt in via prometheus.io/scrape: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          # Honor a custom metrics path (prometheus.io/path), default /metrics
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # Honor the advertised port (prometheus.io/port)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+```
+
 ```sh
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 
-# 1. Prometheus (scrapes the annotated pods)
+# 1. Prometheus — MUST include the annotation-scrape config above
 helm install monitoring prometheus-community/kube-prometheus-stack \
   -n monitoring --create-namespace \
+  -f scrape-values.yaml \
   --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
   --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
 
