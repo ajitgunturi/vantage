@@ -200,6 +200,12 @@ STACK_DSN := postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
 
 stack-up: build dev-up ## Start all four services locally against dev Postgres (logs+pids in .stack/)
 	@mkdir -p $(STACK_DIR)
+	@# Clear ANY previous stack first — including orphans whose pidfiles were
+	@# overwritten. Without this, new processes die on bind conflicts while the
+	@# old stack keeps serving, and pidfiles/logs point at dead processes.
+	@$(MAKE) --no-print-directory stack-down >/dev/null 2>&1 || true
+	@pkill -f 'bin/(mq|streamer|collector|gateway)$$' 2>/dev/null || true
+	@sleep 0.5
 	@echo "waiting for postgres..."; \
 	for i in $$(seq 1 30); do \
 	  docker compose exec -T postgres pg_isready -U vantage >/dev/null 2>&1 && break; sleep 1; done
@@ -212,6 +218,11 @@ stack-up: build dev-up ## Start all four services locally against dev Postgres (
 	@VANTAGE_DB_DSN="$(STACK_DSN)" \
 	  nohup ./bin/gateway                         > $(STACK_DIR)/gateway.log   2>&1 & echo $$! > $(STACK_DIR)/gateway.pid
 	@sleep 1
+	@for ep in "8081/healthz mq" "9000/healthz streamer" "9001/healthz collector" "8080/healthz gateway"; do \
+	  port=$${ep%%/*}; rest=$${ep#*/}; path=$${rest%% *}; svc=$${rest##* }; ok=0; \
+	  for i in $$(seq 1 30); do curl -sf "http://localhost:$$port/$$path" >/dev/null 2>&1 && { ok=1; break; }; sleep 0.3; done; \
+	  [ "$$ok" = 1 ] || { echo "✗ $$svc failed to start — see $(STACK_DIR)/$$svc.log"; tail -3 $(STACK_DIR)/$$svc.log; exit 1; }; \
+	done
 	@echo ""
 	@echo "── local stack running (import Insomnia_Collection.yaml for ready-made requests) ──"
 	@echo "  Gateway    http://localhost:8080   (/api/v1/gpus, /swagger/, /metrics)"
