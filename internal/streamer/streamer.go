@@ -161,6 +161,7 @@ func produceWithRetry(ctx context.Context, client pb.MQServiceClient, msg *pb.Te
 			return ctx.Err()
 		}
 		slog.Warn("produce failed, retrying", "backoff", backoff, "error", err)
+		produceRetriesTotal.Inc()
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -200,11 +201,13 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 				// Malformed row (wrong column count or parse error) — skip and log.
 				// csv.ParseError with Err=csv.ErrFieldCount is the common case here.
 				slog.Warn("skip malformed row", "error", err)
+				rowsSkippedTotal.Inc()
 				continue
 			}
 			msg, err := recordToProto(record)
 			if err != nil {
 				slog.Warn("skip bad record", "error", err)
+				rowsSkippedTotal.Inc()
 				continue
 			}
 			// produceWithRetry retries on transient MQ failures so a single blip
@@ -212,6 +215,7 @@ func Stream(ctx context.Context, client pb.MQServiceClient, csvPath string, loop
 			if err := produceWithRetry(ctx, client, msg); err != nil {
 				return err // only ctx.Err() reaches here
 			}
+			rowsProducedTotal.Inc()
 			if loopDelayMS > 0 {
 				// ctx-aware sleep: cancel propagates immediately (Streamer MINOR).
 				select {

@@ -52,6 +52,7 @@ func main() {
 	// Bodies return only a status field (T-06-08: no internal state leaked).
 	g.Go(func() error {
 		healthMux := http.NewServeMux()
+		healthMux.Handle("GET /metrics", streamer.MetricsHandler())
 		healthMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)

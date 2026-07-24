@@ -25,6 +25,7 @@ func NewRouter(pool *pgxpool.Pool, cfg Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(MetricsMiddleware) // request-latency histogram by route pattern
 
 	// Liveness and readiness probes — registered at router root BEFORE the API
 	// group so they are always reachable even without the /api/v1 prefix.
@@ -32,6 +33,9 @@ func NewRouter(pool *pgxpool.Pool, cfg Config) http.Handler {
 	// spec (Pitfall 1 — health endpoints must not appear in the documented API).
 	r.Get("/healthz", HealthzHandler())
 	r.Get("/readyz", ReadyzHandler(pool))
+	// Prometheus exposition — operational endpoint, excluded from the OpenAPI
+	// spec for the same reason as the probes.
+	r.Method(http.MethodGet, "/metrics", MetricsHandler())
 
 	r.Route("/api/v1/gpus", func(r chi.Router) {
 		r.Get("/", ListGPUs(pool))
