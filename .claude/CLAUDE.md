@@ -17,7 +17,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 
 - **Tech stack**: Go (idiomatic), PostgreSQL via `jackc/pgx/v5` (`pgxpool`), gRPC (Protobuf v3) + HTTP/1.1 JSON — fixed by spec.
 - **Architecture**: Strictly independent microservices; only shared surface is `pkg/` (proto contracts + DB models).
-- **MQ implementation**: Native Go concurrency only (channels, `sync.RWMutex`, ring buffers). No brokers, no disk.
+- **MQ implementation**: Native Go concurrency only (channels, `sync.RWMutex`, ring buffers). No brokers. In-memory is the default behind a `Store` seam; an opt-in WAL persistence backend is deferred to Phase 7 (ADR-009) — no disk in the default path.
 - **Quality**: ≥90% line coverage enforced via Makefile gate; `go test -race` for MQ concurrency. TDD-first.
 - **Deployment**: Docker multi-stage builds; Kubernetes + Helm; each service deploys independently.
 - **Docs**: OpenAPI auto-generated from `swag` annotations only.
@@ -41,7 +41,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | github.com/jackc/pgx/v5 | v5.10.0 | PostgreSQL driver + connection pool (pgxpool) | De-facto standard; v5 rewrote pgxpool for correct concurrency. pgx.CopyFrom uses the PostgreSQL COPY protocol — the fastest bulk-insert path, 5-10x faster than multi-row INSERT at scale. |
 | github.com/go-chi/chi/v5 | v5.3.0 | HTTP router for API Gateway + MQ control plane | 100% net/http compatible — uses `http.Handler`/`http.ResponseWriter`/`*http.Request` with no custom context type. Supports path variables (`{id}`) needed for `/gpus/{id}/telemetry`. Zero external dependencies. |
 | github.com/swaggo/swag | v1.16.4 | OpenAPI spec generation from code annotations | The spec mandates fully auto-generated docs from annotations; swag init parses `// @Param`, `// @Success`, etc. and emits `docs/swagger.json`. Use v1.16.x, NOT v2.0.0-rc5 (RC, not stable). Pinned at v1.16.4 in go.mod (Phase 4: the generated `pkg/docs` imports the swag runtime; CLI and library kept in lockstep). |
-| bufbuild/buf | v1.71.0 | Protobuf toolchain (linting, code gen, breaking-change detection) | Replaces raw `protoc` + manual plugin management. `buf generate` with remote BSR plugins eliminates local plugin installs; buf lint enforces proto style; buf breaking protects API contracts. |
+| protoc (raw) + protoc-gen-go / protoc-gen-go-grpc | protoc ≥ 25, plugins pinned via `make tools` | Protobuf toolchain — generation via `make proto`, generated code committed to `pkg/pb/` | **Chosen over buf (see `docs/adr/ADR-005-raw-protoc-over-buf.md`):** one proto file, no registry/versioning need; committing `pkg/pb/` keeps builds/CI hermetic (`go build`/`go test` need no proto toolchain). buf was the original research recommendation and was rejected. |
 
 ### Supporting Libraries
 
@@ -52,15 +52,17 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | github.com/testcontainers/testcontainers-go | v0.43.0 | Spin up real Docker containers in tests | Collector and db integration tests only. Starts a real `postgres:17-alpine` container per test package via `TestMain`; pgxpool connects to its `ConnectionString()`. |
 | github.com/testcontainers/testcontainers-go/modules/postgres | v0.43.0 | Postgres-specific helpers for testcontainers | Same version as parent module. Provides `postgres.Run(ctx, image, postgres.WithDatabase(...), postgres.BasicWaitStrategies())` and `Snapshot()`/`Restore()` for cheap test isolation. |
 
-### Protobuf Code Generation (buf.gen.yaml)
+### Protobuf Code Generation
 
-# api/proto/buf.gen.yaml
+Generation is `make proto` — raw `protoc` with `--go_out`/`--go-grpc_out` and
+`paths=source_relative`, emitting into `pkg/pb/` (committed; hermetic builds). There is no
+`buf.gen.yaml` — buf is not used in this project (ADR-005).
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| buf CLI v1.71.0 | Proto linting, code generation, breaking-change detection | `brew install bufbuild/buf/buf` or `go install github.com/bufbuild/buf/cmd/buf@v1.71.0`. Run `buf lint` in CI; `buf breaking --against '.git#branch=main'` to prevent accidental API breaks. |
+| protoc + Go plugins | Proto code generation (`make proto`) | Install via `make tools` (protoc-gen-go, protoc-gen-go-grpc) plus a local `protoc` (`brew install protobuf`). Only needed when `api/proto/mq.proto` changes — generated code is committed (ADR-005). |
 | swag CLI v1.16.4 | Generate docs/ from gateway annotations | `go install github.com/swaggo/swag/cmd/swag@v1.16.4`. Add `make swagger` target: `swag init -g cmd/gateway/main.go --output docs/`. |
 | kind (latest) | Local Kubernetes cluster | `go install sigs.k8s.io/kind@latest`. Single-node cluster; load images with `kind load docker-image`. No VM required — runs clusters in Docker containers. |
 | Helm v3 | Package manager for Kubernetes manifests | Used to deploy all four services + PostgreSQL sub-charts under `deployments/`. |
@@ -78,7 +80,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 
 | Category | Recommended | Alternative | Why Not |
 |----------|-------------|-------------|---------|
-| Proto toolchain | buf CLI v1.71.0 | raw protoc | protoc requires managing separate binaries per OS, no linting, no breaking-change detection. buf solves all three and is now the community standard. |
+| Proto toolchain | raw protoc (per ADR-005) | buf CLI | buf's lint/breaking-change/BSR features are overhead for a single proto file with no external registry need; raw protoc + committed `pkg/pb/` codegen keeps builds hermetic. (buf was the original research recommendation; ADR-005 reversed it.) |
 | HTTP router (Gateway) | chi/v5 v5.3.0 | gin v1 | Gin uses its own `*gin.Context` type, breaking compatibility with standard `http.Handler` middleware. Chi is idiomatic Go — any net/http middleware works without adaptation. |
 | HTTP router (MQ control plane) | net/http ServeMux | chi | MQ has exactly one HTTP endpoint (`GET /api/v1/queue/inspect`). No path variables, no middleware chain needed. ServeMux is zero-dependency and sufficient. |
 | PostgreSQL bulk insert | pgxpool.CopyFrom | pgx.Batch / SendBatch | CopyFrom uses PostgreSQL COPY protocol — the fastest available path, 5-10x faster at volume. pgx.Batch/SendBatch is for mixed-operation batches or when partial failure per-row matters. |
@@ -102,7 +104,7 @@ with **no message loss or duplication** across horizontally-scaled producers and
 ## Stack Patterns by Variant
 
 - Define service in `api/proto/mq.proto` with `Produce(MetricPayload) returns (Ack)` and a **bidirectional** `Consume(stream ConsumeControl) returns (stream MetricPayload)` — client streams credit + acks, server streams messages (broker-side at-least-once, ADR-001)
-- Generate with `buf generate` from `api/proto/`
+- Generate with `make proto` (raw protoc; see ADR-005)
 - Implement `grpc.NewServer()` on one port (default 50051); `net/http` ServeMux on a second port (8080) for the control plane
 - Keep gRPC server and HTTP server in separate goroutines; use `errgroup.Group` from `golang.org/x/sync/errgroup` to manage both
 - Open pgxpool once at startup: `pgxpool.New(ctx, connString)` with `pgxpool.ParseConfig` to set `MaxConns`
@@ -129,7 +131,6 @@ with **no message loss or duplication** across horizontally-scaled producers and
 | github.com/swaggo/swag@v1.16.4 | github.com/swaggo/http-swagger/v2@v2.0.2 | swag v1 + http-swagger/v2 is the supported pairing; http-swagger/v2 added support for newer Swagger UI versions |
 | github.com/testcontainers/testcontainers-go@v0.43.0 | testcontainers-go/modules/postgres@v0.43.0 | Always pin both to the same version — the modules/postgres package is part of the same release cycle |
 | github.com/jackc/pgx/v5@v5.10.0 | testcontainers-go postgres@v0.43.0 | testcontainers-go returns a connection string; feed it to pgxpool.New() directly |
-| buf.build/protocolbuffers/go:v1.36.11 | buf.build/grpc/go:v1.6.2 | Remote BSR plugins are versioned independently of the local Go libraries; versions match their local equivalents |
 
 ## Sources
 
