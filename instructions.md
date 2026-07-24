@@ -7,23 +7,9 @@ Crucially, the architecture must be structured as **strictly independent microse
 
 ---
 
-## Approved Deviations from the Original Brief
-
-> Owner-approved, documented departures from the brief as originally written.
-> Clauses affected below are annotated inline with **[DEVIATION → ADR-NNN]**.
-> The original wording is preserved; the deviation note states the current truth.
-
-- **[ADR-001] MQ `Consume` is a *bidirectional* streaming RPC with broker-side
-  at-least-once delivery** (per-message ack + client-driven credit + redelivery
-  on disconnect), **not** the server-side-streaming / no-ack design originally
-  specified. Triggered by a reproduced silent-message-loss defect on consumer
-  disconnect. Built in Phase 01.1. In-memory / no-disk / single-replica /
-  from-scratch constraints are unchanged. See
-  `docs/adr/ADR-001-bidi-at-least-once-delivery.md`.
-- **[Pre-existing] Opt-in WAL persistence backend** behind the `Store` interface
-  (in-memory remains the default) — deferred post-v1 by owner directive 2026-07-03
-  (renumbered Phase 7); interface seam shipped, backend not built. See
-  `docs/adr/ADR-009-opt-in-wal-extension.md` and `docs/FUTURE.md`.
+> Deliberate departures from this brief are recorded in
+> [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md); affected clauses below are marked
+> **[DEVIATION → ADR-NNN]**. The brief's original wording is preserved throughout.
 
 ---
 

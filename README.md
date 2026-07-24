@@ -166,6 +166,7 @@ startup commands, and the smoke suite without kind.
 | [docs/development.readme.md](docs/development.readme.md) | Repo layout, storage, smoke suite, testing, DevOps, CI |
 | [docs/FUTURE.md](docs/FUTURE.md) | Designed-but-deferred: opt-in WAL + multi-schema messages |
 | [docs/adr/README.md](docs/adr/README.md) | All ten architectural decision records |
+| [docs/DEVIATIONS.md](docs/DEVIATIONS.md) | Deliberate deviations from the brief |
 | [docs/AI_USAGE.md](docs/AI_USAGE.md) | Scope, model, oversight, known limitations |
 | [docs/AI_PROMPTS.md](docs/AI_PROMPTS.md) | Verbatim prompt log across all phases |
 | [instructions.md](instructions.md) | Authoritative project spec |
