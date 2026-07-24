@@ -45,6 +45,8 @@ CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume bidi stream: msgs ↓ 
 | `make smoke-NN` | Run one phase's smoke check (e.g. `make smoke-05`) |
 | `make stack-up` | Start all four services locally against dev Postgres (gateway :8080, MQ :8081/:50051, streamer :9000, collector :9001) — import `Insomnia_Collection.yaml` for ready-made requests |
 | `make stack-down` | Stop the local stack (Postgres stays up; `make dev-down` stops it) |
+| `make kind-forward` | Port-forward the kind cluster onto the same local ports — the Insomnia collection works unchanged against the cluster |
+| `make kind-unforward` | Stop the kind port-forwards |
 | `make dev-up` | Start local Postgres via docker compose |
 | `make dev-down` | Stop local Postgres |
 | `make docker` | Build all five service images |

@@ -205,6 +205,7 @@ stack-up: build dev-up ## Start all four services locally against dev Postgres (
 	@# old stack keeps serving, and pidfiles/logs point at dead processes.
 	@$(MAKE) --no-print-directory stack-down >/dev/null 2>&1 || true
 	@pkill -f 'bin/(mq|streamer|collector|gateway)$$' 2>/dev/null || true
+	@pkill -f 'kubectl port-forward.*vantage' 2>/dev/null || true
 	@sleep 0.5
 	@echo "waiting for postgres..."; \
 	for i in $$(seq 1 30); do \
@@ -237,3 +238,24 @@ stack-down: ## Stop the local stack (leaves dev Postgres running; make dev-down 
 	  [ -e "$$f" ] || continue; \
 	  kill "$$(cat $$f)" 2>/dev/null || true; rm -f "$$f"; \
 	done; echo "stack stopped (postgres still up — 'make dev-down' to stop it)"
+
+kind-forward: ## Port-forward the kind cluster onto the local-stack ports (Insomnia collection works unchanged)
+	@$(MAKE) --no-print-directory stack-down >/dev/null 2>&1 || true
+	@pkill -f 'kubectl port-forward.*vantage' 2>/dev/null || true
+	@mkdir -p $(STACK_DIR); sleep 0.5
+	@nohup kubectl port-forward svc/vantage-mq        8081:8080 50051:50051 > $(STACK_DIR)/pf-mq.log        2>&1 & echo $$! > $(STACK_DIR)/pf-mq.pid
+	@nohup kubectl port-forward svc/vantage-gateway   8080:8080             > $(STACK_DIR)/pf-gateway.log   2>&1 & echo $$! > $(STACK_DIR)/pf-gateway.pid
+	@nohup kubectl port-forward deploy/vantage-streamer  9000:9000          > $(STACK_DIR)/pf-streamer.log  2>&1 & echo $$! > $(STACK_DIR)/pf-streamer.pid
+	@nohup kubectl port-forward deploy/vantage-collector 9001:9001          > $(STACK_DIR)/pf-collector.log 2>&1 & echo $$! > $(STACK_DIR)/pf-collector.pid
+	@for ep in "8080 gateway" "8081 mq" "9000 streamer" "9001 collector"; do \
+	  port=$${ep%% *}; svc=$${ep##* }; ok=0; \
+	  for i in $$(seq 1 30); do curl -sf "http://localhost:$$port/healthz" >/dev/null 2>&1 && { ok=1; break; }; sleep 0.3; done; \
+	  [ "$$ok" = 1 ] || { echo "✗ forward to $$svc failed — see $(STACK_DIR)/pf-$$svc.log"; exit 1; }; \
+	done
+	@echo "── kind cluster forwarded to local ports (same as the Insomnia collection) ──"
+	@echo "  Gateway :8080 · MQ :8081 (gRPC :50051) · Streamer :9000 · Collector :9001"
+	@echo "  stop with: make kind-unforward   (local stack instead: make stack-up)"
+
+kind-unforward: ## Stop the kind port-forwards
+	@pkill -f 'kubectl port-forward.*vantage' 2>/dev/null || true
+	@rm -f $(STACK_DIR)/pf-*.pid; echo "port-forwards stopped"
