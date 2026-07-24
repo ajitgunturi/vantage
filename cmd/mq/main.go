@@ -112,6 +112,14 @@ func main() {
 		drainTick := time.NewTicker(100 * time.Millisecond)
 		slog.Info("drain started — refusing Produce, waiting for consumers to clear backlog",
 			"timeout_ms", cfg.DrainTimeoutMS)
+		// Stall detection: draining only makes sense while consumers can make
+		// progress. With zero connected consumers and no acks for 2s straight,
+		// nothing can clear the backlog — exit promptly instead of holding the
+		// ports for the full drain window (a brief idle grace still lets a
+		// collector in its reconnect backoff reattach).
+		const stallTicks = 20 // 20 × 100ms = 2s of no-consumer, no-progress
+		idleTicks := 0
+		lastConsumed := int64(-1)
 	drain:
 		for {
 			select {
@@ -120,6 +128,18 @@ func main() {
 					slog.Info("drain complete — no queued or in-flight messages")
 					break drain
 				}
+				st := mqSrv.Stats()
+				if st.ActiveConsumers == 0 && st.Consumed == lastConsumed {
+					idleTicks++
+					if idleTicks >= stallTicks {
+						slog.Warn("drain stalled — no consumers connected and no progress; exiting with messages remaining",
+							"depth", st.Depth, "retry_depth", st.RetryDepth, "in_flight", st.InFlight)
+						break drain
+					}
+				} else {
+					idleTicks = 0
+				}
+				lastConsumed = st.Consumed
 			case <-drainDeadline:
 				st := mqSrv.Stats()
 				slog.Warn("drain timeout — proceeding to shutdown with messages remaining",

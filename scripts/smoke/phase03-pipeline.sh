@@ -53,9 +53,16 @@ COLLECTOR_PID=""
 STREAMER_PID=""
 
 cleanup() {
-  # Kill only the three background pipeline binaries; leave the dev Postgres running.
-  for P in "$MQ_PID" "$COLLECTOR_PID" "$STREAMER_PID"; do
+  # Stop only the three background pipeline binaries; leave the dev Postgres
+  # running. Producer first (no new messages), then consumer, then broker —
+  # and WAIT for each to actually exit: the MQ holds its ports through the
+  # SIGTERM drain phase (a couple of seconds when consumers are gone), and a
+  # lingering listener would break the next smoke phase's bind on :8080.
+  for P in "$STREAMER_PID" "$COLLECTOR_PID" "$MQ_PID"; do
     [ -n "$P" ] && kill "$P" 2>/dev/null || true
+  done
+  for P in "$STREAMER_PID" "$COLLECTOR_PID" "$MQ_PID"; do
+    [ -n "$P" ] && wait "$P" 2>/dev/null || true
   done
 }
 trap cleanup EXIT

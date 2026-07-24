@@ -171,4 +171,28 @@ MQ_PID=""
 grep -q "drain complete" "$TMP/mq.log" || fail "mq log must record the completed drain"
 pass "clean exit — drain completed with an empty broker (exit 0)"
 
+# ── Scenario 3b: stalled drain — backlog but NO consumers ────────────────────
+# Draining only helps while consumers can make progress. With backlog and no
+# consumer connected, the broker must detect the stall and exit promptly
+# (~2s) instead of holding its ports for the full drain window — a lingering
+# broker blocks the next service from binding (rolling restarts, smoke runs).
+echo "scenario 3b: SIGTERM with backlog and no consumers — prompt stalled-drain exit..."
+start_mq MQ_BUFFER_SIZE=100 MQ_DRAIN_TIMEOUT_MS=30000
+
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n 5 -mode produce || fail "produce 5 failed"
+START_TS=$(date +%s)
+kill -TERM "$MQ_PID"
+EXITED=0
+for _ in $(seq 1 80); do   # 8s ceiling — far below the 30s drain window
+  if ! kill -0 "$MQ_PID" 2>/dev/null; then EXITED=1; break; fi
+  sleep 0.1
+done
+ELAPSED=$(( $(date +%s) - START_TS ))
+[ "$EXITED" = 1 ] || fail "mq must exit promptly when the drain is stalled (no consumers) — still alive after 8s"
+wait "$MQ_PID" 2>/dev/null; RC=$?
+MQ_PID=""
+[ "$RC" -eq 0 ] || { cat "$TMP/mq.log"; fail "stalled drain must still exit 0 (got $RC)"; }
+grep -q "drain stalled" "$TMP/mq.log" || fail "mq log must record the stalled drain"
+pass "stalled drain — no consumers: exited in ${ELAPSED}s (well under the 30s window), backlog logged"
+
 echo "${GREEN}${BOLD}PASS${RST} — Phase 6 delivery-hardening smoke (backpressure, TTL→DLQ→replay, preStop drain)"
