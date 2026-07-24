@@ -1,0 +1,40 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Vantage APIs
+meta:
+  id: wrk_e117a7a3878b444f8201653fb7a36de7
+  created: 1784898178259
+  modified: 1784898178259
+  description: ""
+collection:
+  - url: https://localhost:8080/metrics
+    name: API Gateway Metrics
+    meta:
+      id: req_4491e90f7a12466ab706169df331580d
+      created: 1784898197677
+      modified: 1784898242380
+      isPrivate: false
+      description: ""
+      sortKey: -1784898197677
+    method: GET
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_7c6edaae8d3c0e929d95adadba3069a55b7bb464
+    created: 1784898178260
+    modified: 1784898178260
+environments:
+  name: Base Environment
+  meta:
+    id: env_7c6edaae8d3c0e929d95adadba3069a55b7bb464
+    created: 1784898178259
+    modified: 1784898178259
+    isPrivate: false

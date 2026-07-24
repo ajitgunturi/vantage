@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -389,4 +390,82 @@ func TestMQ_DrainPhase(t *testing.T) {
 
 	cancel()
 	wg.Wait()
+}
+
+// TestMQ_ProduceBatch covers the batch publish path: in-order admission, the
+// partial-accept contract under backpressure (rejected suffix), validation,
+// and the drain gate.
+func TestMQ_ProduceBatch(t *testing.T) {
+	mkMsgs := func(n int) []*pb.TelemetryMessage {
+		out := make([]*pb.TelemetryMessage, n)
+		for i := range out {
+			out[i] = &pb.TelemetryMessage{MetricName: fmt.Sprintf("b-%d", i), GpuId: "0"}
+		}
+		return out
+	}
+
+	t.Run("all accepted under default policy", func(t *testing.T) {
+		b := queue.NewBroker(queue.BrokerConfig{Capacity: 100})
+		defer b.Close() //nolint:errcheck
+		srv := server.NewMQServer(b, 4)
+		defer srv.Shutdown()
+
+		resp, err := srv.ProduceBatch(context.Background(), &pb.ProduceBatchRequest{Messages: mkMsgs(50)})
+		require.NoError(t, err)
+		require.Equal(t, uint32(50), resp.GetAccepted())
+		require.Equal(t, uint32(0), resp.GetRejected())
+		st := srv.Stats()
+		require.Equal(t, int64(50), st.Produced)
+		require.Equal(t, 50, st.Depth)
+	})
+
+	t.Run("partial accept under reject policy", func(t *testing.T) {
+		b := queue.NewBroker(queue.BrokerConfig{Capacity: 4, Policy: queue.PolicyReject})
+		defer b.Close() //nolint:errcheck
+		srv := server.NewMQServer(b, 4)
+		defer srv.Shutdown()
+
+		resp, err := srv.ProduceBatch(context.Background(), &pb.ProduceBatchRequest{Messages: mkMsgs(6)})
+		require.NoError(t, err, "backpressure is reported in counts, not as an RPC error")
+		require.Equal(t, uint32(4), resp.GetAccepted(), "the accepted prefix fills the budget")
+		require.Equal(t, uint32(2), resp.GetRejected(), "the suffix is the caller's to retry")
+		st := srv.Stats()
+		require.Equal(t, int64(4), st.Produced)
+		require.Equal(t, int64(1), st.Rejected, "one refusal event, not one per unsent message")
+
+		// The accepted prefix preserves batch order.
+		m, ok := b.Lease(1)
+		require.True(t, ok)
+		require.Equal(t, "b-0", m.GetMetricName())
+	})
+
+	t.Run("validation", func(t *testing.T) {
+		b := queue.NewBroker(queue.BrokerConfig{Capacity: 4})
+		defer b.Close() //nolint:errcheck
+		srv := server.NewMQServer(b, 4)
+		defer srv.Shutdown()
+
+		_, err := srv.ProduceBatch(context.Background(), &pb.ProduceBatchRequest{})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "empty batch")
+
+		_, err = srv.ProduceBatch(context.Background(), &pb.ProduceBatchRequest{
+			Messages: []*pb.TelemetryMessage{{MetricName: "ok"}, nil},
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "nil message")
+		require.Equal(t, 0, srv.Stats().Depth, "validation failures must have no partial effect")
+
+		_, err = srv.ProduceBatch(context.Background(), &pb.ProduceBatchRequest{Messages: mkMsgs(1001)})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "oversized batch")
+	})
+
+	t.Run("refused while draining", func(t *testing.T) {
+		b := queue.NewBroker(queue.BrokerConfig{Capacity: 4})
+		defer b.Close() //nolint:errcheck
+		srv := server.NewMQServer(b, 4)
+		srv.BeginDrain()
+		defer srv.Shutdown()
+
+		_, err := srv.ProduceBatch(context.Background(), &pb.ProduceBatchRequest{Messages: mkMsgs(2)})
+		require.Equal(t, codes.Unavailable, status.Code(err))
+	})
 }

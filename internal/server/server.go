@@ -441,3 +441,61 @@ func (s *MQServer) Stats() ServerStats {
 		LeaseExpired:    st.LeaseExpiredTotal,
 	}
 }
+
+// maxBatchSize bounds ProduceBatch so one RPC cannot monopolize broker memory
+// or the admission path.
+const maxBatchSize = 1000
+
+// ProduceBatch implements the high-throughput publish path: messages are
+// enqueued in order under the same admission control as Produce. On the first
+// backpressure refusal (reject/block policies) it stops and reports the
+// accepted prefix; the caller retries the suffix after backoff. The whole
+// batch is validated before anything is enqueued, so a malformed batch has no
+// partial effect.
+func (s *MQServer) ProduceBatch(ctx context.Context, req *pb.ProduceBatchRequest) (*pb.ProduceBatchResponse, error) {
+	msgs := req.GetMessages()
+	if len(msgs) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "batch must not be empty")
+	}
+	if len(msgs) > maxBatchSize {
+		return nil, status.Errorf(codes.InvalidArgument, "batch size %d exceeds maximum %d", len(msgs), maxBatchSize)
+	}
+	for i, m := range msgs {
+		if m == nil {
+			return nil, status.Errorf(codes.InvalidArgument, "message %d must not be nil", i)
+		}
+	}
+	if s.IsShuttingDown() {
+		return nil, status.Error(codes.Unavailable, "shutting down — draining")
+	}
+
+	accepted := 0
+	for _, m := range msgs {
+		if err := s.store.Enqueue(ctx, m); err != nil {
+			switch {
+			case errors.Is(err, queue.ErrFull):
+				// Backpressure mid-batch: report the accepted prefix; the
+				// remainder is the caller's to retry. Count ONE rejection event
+				// (the refusal), not one per unsent message.
+				atomic.AddInt64(&s.rejected, 1)
+				goto done
+			case errors.Is(err, queue.ErrClosed):
+				goto done // shutdown raced the batch — deliver what was accepted
+			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+				goto done // caller gone — whatever landed, landed
+			default:
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+		}
+		accepted++
+	}
+done:
+	if accepted > 0 {
+		atomic.AddInt64(&s.produced, int64(accepted))
+		s.NotifyAll()
+	}
+	return &pb.ProduceBatchResponse{
+		Accepted: uint32(accepted),
+		Rejected: uint32(len(msgs) - accepted),
+	}, nil
+}
