@@ -62,9 +62,27 @@ echo "${BOLD}== Phase 6 smoke: delivery-hardening boundaries ==${RST}"
 echo "building mq..."
 go build -o "$TMP/mq" ./cmd/mq || fail "go build ./cmd/mq"
 
-# ── Scenario 1: backpressure at a full ring ──────────────────────────
-echo "scenario 1: backpressure — ring of 10, reject policy (default)..."
+# ── Scenario 1a: default overflow policy — drop-oldest (telemetry freshness) ─
+# This is a telemetry pipeline: under overload the oldest reading is the least
+# valuable, so the default admits fresh data by evicting the oldest — with
+# every eviction counted so operators can see the pressure and scale.
+echo "scenario 1a: default policy — ring of 10, produce 15, freshest retained..."
 start_mq MQ_BUFFER_SIZE=10
+
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n 15 -mode produce \
+  || fail "default drop-oldest must admit all production (evicting oldest)"
+BODY="$(curl -sf "http://${HTTP_HOST}/api/v1/queue/inspect")" || fail "inspect curl failed"
+[ "$(counter "$BODY" dropped_overflow_total)" -eq 5 ] || fail "5 oldest must be evicted+counted: ${BODY}"
+[ "$(counter "$BODY" rejected_total)"         -eq 0 ] || fail "default policy must not refuse producers: ${BODY}"
+[ "$(counter "$BODY" depth)"                  -eq 10 ] || fail "ring must hold the freshest 10: ${BODY}"
+go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n 10 -mode consume -credit 10 \
+  || fail "draining the freshest 10 failed"
+pass "default drop-oldest — 15 produced into 10 slots: 5 oldest evicted (counted), freshest 10 drained"
+stop_mq
+
+# ── Scenario 1b: reject policy (opt-in) — lossless backpressure ──────────────
+echo "scenario 1b: reject policy — ring of 10, producers refused at full..."
+start_mq MQ_BUFFER_SIZE=10 MQ_OVERFLOW_POLICY=reject
 
 go run ./scripts/smoke/mqprobe -grpc "$GRPC_HOST" -n 10 -mode produce \
   || fail "filling the ring (10) must succeed"
@@ -153,4 +171,4 @@ MQ_PID=""
 grep -q "drain complete" "$TMP/mq.log" || fail "mq log must record the completed drain"
 pass "clean exit — drain completed with an empty broker (exit 0)"
 
-echo "${GREEN}${BOLD}PASS${RST} — Phase 7 delivery-hardening smoke (backpressure, TTL→DLQ→replay, preStop drain)"
+echo "${GREEN}${BOLD}PASS${RST} — Phase 6 delivery-hardening smoke (backpressure, TTL→DLQ→replay, preStop drain)"

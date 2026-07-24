@@ -79,3 +79,34 @@ New read shapes mean new gateway endpoints, each with full `swag` annotations, a
 OpenAPI spec (`make swagger`) — the spec stays auto-generated, never hand-written.
 
 **Status:** designed, deferred, not scheduled — revisit post-v1.
+
+---
+
+## Adaptive sampling under producer overload
+
+**Status: planned (not designed in detail).** ADR-011 made overload an explicit policy: the
+default `drop-oldest` keeps the freshest telemetry and counts every eviction
+(`dropped_overflow_total`). That is the right *failure* behavior for a telemetry pipeline — but
+sustained overload deserves a smarter *response* than blind tail-drop.
+
+### Direction
+
+**Degrade resolution deliberately instead of dropping arbitrarily.** When overload is sustained
+(non-zero eviction rate over a window, or queue depth above a high-watermark), reduce the
+sampling rate at the source rather than letting the ring decide which readings survive:
+
+- **Streamer-side (preferred):** on sustained `ResourceExhausted`/eviction signal, publish every
+  Nth reading per `(gpu_id, metric_name)` stream — uniform stride sampling preserves per-series
+  coverage, unlike tail-drop which can blackhole whole series behind a hot producer. Back off N
+  as pressure clears.
+- **Broker-side (fallback):** at a high-watermark, admit-by-stride per series instead of
+  evicting — same effect for producers that don't implement client-side sampling.
+
+### Why sampling and not a bigger queue
+
+Telemetry tolerates lower resolution; it does not tolerate staleness. For workloads where every
+record matters, the `reject` policy already provides lossless backpressure — and the counters
+(`dropped_overflow_total`, `rejected_total`, queue depth) are the operator signal to scale
+consumers, raise `MQ_BUFFER_SIZE`, or add partitions instead. A Prometheus `/metrics` export of
+these counters (also future work) is the natural trigger for that scaling loop; sampling is the
+*automated* response for the freshness-first default.

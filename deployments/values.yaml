@@ -12,7 +12,7 @@ mq:
   terminationGracePeriodSeconds: 35
   # Delivery-hardening knobs. Defaults mirror internal/config.
   hardening:
-    overflowPolicy: reject     # reject | drop-oldest | block
+    overflowPolicy: drop-oldest  # drop-oldest (default: telemetry freshness-first) | reject | block
     maxDeliveries: 5           # deliveries before DLQ routing
     dlqCapacity: 1000          # bounded dead-letter lane
     retryBackoffBaseMS: 500    # redelivery visibility backoff base

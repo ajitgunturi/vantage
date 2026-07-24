@@ -24,7 +24,7 @@ Configuration is env-first (all optional):
 | `MQ_HTTP_ADDR` | `:8080` | HTTP control-plane listen address |
 | `MQ_BUFFER_SIZE` | `10000` | **Capacity budget**: queued (main + retry) **plus in-flight** messages never exceed it. Overflow behavior is `MQ_OVERFLOW_POLICY`. |
 | `MQ_CONSUME_CREDIT` | `20` | Broker-side **fallback** in-flight window, applied when a consumer's first credit message is ≤ 0. Non-positive/non-numeric values are ignored and the default is kept. |
-| `MQ_OVERFLOW_POLICY` | `reject` | Enqueue behavior at a full budget: `reject` (backpressure — `Produce` returns `ResourceExhausted`), `drop-oldest` (evict oldest queued; opt-in), `block` (bounded producer wait). |
+| `MQ_OVERFLOW_POLICY` | `drop-oldest` | Enqueue behavior at a full budget: `drop-oldest` (default — telemetry freshness-first; evictions counted), `reject` (lossless backpressure — `Produce` returns `ResourceExhausted`), `block` (bounded producer wait). |
 | `MQ_BLOCK_TIMEOUT_MS` | `1000` | Max producer wait under the `block` policy before `ResourceExhausted`. |
 | `MQ_MAX_DELIVERIES` | `5` | Deliveries before a message is routed to the DLQ instead of retried. |
 | `MQ_DLQ_CAPACITY` | `1000` | Dead-letter lane budget (separate from `MQ_BUFFER_SIZE`); DLQ overflow evicts its oldest entry (counted). |
@@ -65,12 +65,15 @@ As of Phase 01.1 the MQ delivers **at-least-once** over a **bidirectional** `Con
 The capacity budget (`MQ_BUFFER_SIZE`) counts queued **and** in-flight messages. At a full budget,
 `MQ_OVERFLOW_POLICY` decides what `Produce` does:
 
-- **`reject` (default) — backpressure, zero loss.** `Produce` returns `ResourceExhausted`; the
-  producer's retry-with-backoff (built into the Streamer) becomes real flow control. Refusals are
-  counted in `rejected_total` — they are *visible pushback*, not loss.
-- **`drop-oldest` (opt-in)** — the pre-hardening behavior for deployments that prefer fresh data
-  over old under overload: the oldest *queued* message is evicted (never an in-flight lease),
-  counted in `dropped_overflow_total`.
+- **`drop-oldest` (default) — freshness-first.** This is a telemetry pipeline: under overload the
+  oldest reading is the least valuable, so the oldest *queued* message is evicted (never an
+  in-flight lease) to admit the new one. Every eviction is counted in `dropped_overflow_total` —
+  overload is a visible, alertable signal to scale consumers or the buffer, never silent. The
+  planned follow-up is **adaptive sampling** under sustained overload (see
+  [`docs/FUTURE.md`](FUTURE.md)): degrade resolution deliberately instead of tail-dropping blindly.
+- **`reject` (opt-in) — lossless backpressure.** For workloads where every record matters more
+  than freshness: `Produce` returns `ResourceExhausted` and the producer's retry-with-backoff
+  (built into the Streamer) becomes real flow control. Refusals are counted in `rejected_total`.
 - **`block` (opt-in)** — the producer waits up to `MQ_BLOCK_TIMEOUT_MS` for space, then
   `ResourceExhausted`.
 

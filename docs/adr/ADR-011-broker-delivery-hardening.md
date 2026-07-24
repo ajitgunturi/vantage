@@ -36,11 +36,16 @@ adapter; in-memory/from-scratch/single-replica constraints unchanged):
    messages never exceed `MQ_BUFFER_SIZE`. Corollary: the requeue path always
    has headroom and structurally cannot evict (`dropped_requeue_total` remains
    as a tripwire).
-2. **Overflow policy, default `reject`.** At a full budget `Produce` returns
-   `ResourceExhausted`; the Streamer's existing retry-with-backoff becomes real
-   flow control. `drop-oldest` (previous behavior) and `block` (bounded wait)
-   are explicit opt-ins. Refusals are counted (`rejected_total`), and drop
-   counters are split by cause.
+2. **Overflow policy — explicit and counted, default `drop-oldest`.** This is
+   a telemetry pipeline: under overload the oldest reading is the least
+   valuable, so the default retains freshness — and unlike before, every
+   eviction is a counted, alertable signal (`dropped_overflow_total`) telling
+   operators to scale consumers or the buffer. `reject` (lossless
+   backpressure: `ResourceExhausted`, with the Streamer's retry as flow
+   control) and `block` (bounded wait) are opt-ins for workloads where every
+   record matters more than freshness. Planned follow-up: **adaptive
+   sampling** under sustained overload (docs/FUTURE.md) — degrade resolution
+   deliberately rather than tail-drop blindly.
 3. **Stable identity + attempt tracking.** Broker ids are assigned once at
    `Enqueue`; `delivery_attempts` (proto field 14) increments per lease.
 4. **Retry lane with visibility backoff.** Redeliveries wait
@@ -65,16 +70,21 @@ adapter; in-memory/from-scratch/single-replica constraints unchanged):
 ## Consequences
 
 **Positive**
-- The at-least-once guarantee now holds under producer overload and consumer
-  churn by construction, not by capacity headroom luck; loss is impossible
-  under the default policy, and every non-happy path is a counted signal
-  (`rejected_total`, `dead_lettered_total`, `lease_expired_total`).
+- Overload behavior is now an explicit, observable policy instead of a silent
+  failure mode: the default keeps the freshest telemetry and counts every
+  eviction; the `reject` opt-in makes loss impossible for workloads that need
+  it. Every non-happy path is a counted signal (`dropped_overflow_total`,
+  `rejected_total`, `dead_lettered_total`, `lease_expired_total`).
 - One poison message (delivery-level or DB-level) can no longer wedge or
   starve the pipeline; both DLQs have inspect/replay paths.
 
 **Negative / accepted**
-- **`Produce` can now fail** with `ResourceExhausted` — a contract change.
-  All in-repo producers already retry with backoff; external producers must.
+- **`Produce` can now fail** with `ResourceExhausted` (under the `reject` /
+  `block` policies and during drain) — a contract change. All in-repo
+  producers already retry with backoff; external producers must.
+- Under the default policy, sustained overload still sheds the oldest
+  readings (counted). The roadmap answer is adaptive sampling plus scaling on
+  the published counters, not an unbounded queue.
 - Redelivery is no longer instantaneous (bounded backoff): latency traded for
   the end of hot-loop amplification.
 - Dead-lettered broker messages are still in-memory (lost on restart); the

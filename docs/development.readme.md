@@ -176,9 +176,10 @@ make e2e        # end-to-end pipeline tests (requires Docker)
 
 The MQ's correctness under concurrency is proven by race-detector tests in `internal/server` and
 `internal/queue` (run at `-count=50`): broker-side at-least-once with no loss on consumer
-disconnect (in-flight leases count against the capacity budget, so requeue never evicts; under
-the default `reject` overflow policy producers get backpressure instead of drops — see the
-Overload semantics section in `docs/mq.readme.md`), no over-pull beyond credit
+disconnect (in-flight leases count against the capacity budget, so requeue never evicts;
+enqueue overflow is governed by `MQ_OVERFLOW_POLICY` — drop-oldest freshness-first by default,
+with lossless `reject` backpressure opt-in — see Overload semantics in `docs/mq.readme.md`),
+no over-pull beyond credit
 `C`, redelivery of unacked leases to survivors, unique
 steady-state delivery, safe ack handling (unknown/double acks are no-ops), and no goroutine leaks.
 

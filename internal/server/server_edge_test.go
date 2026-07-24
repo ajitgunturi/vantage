@@ -240,11 +240,11 @@ func TestMQ_CreditCeilingUnbounded(t *testing.T) {
 	require.Equal(t, int64(N), srv.Stats().Consumed)
 }
 
-// TestMQ_ProduceBackpressure covers the backpressure contract: at a full capacity budget
-// under the default reject policy, Produce returns codes.ResourceExhausted and
-// the rejection is counted — no silent drop-oldest.
+// TestMQ_ProduceBackpressure covers the backpressure contract: at a full
+// capacity budget under the reject policy (opt-in for lossless workloads),
+// Produce returns codes.ResourceExhausted and the rejection is counted.
 func TestMQ_ProduceBackpressure(t *testing.T) {
-	s := queue.NewBroker(queue.BrokerConfig{Capacity: 2})
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 2, Policy: queue.PolicyReject})
 	srv := server.NewMQServer(s, 4)
 	defer srv.Shutdown()
 

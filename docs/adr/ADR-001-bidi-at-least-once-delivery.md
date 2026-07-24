@@ -93,9 +93,11 @@ are accepted consequences of the in-memory, fixed-capacity design:
 1. **Producer overload → drop-oldest.** `Enqueue` on a full ring
    (`MQ_BUFFER_SIZE`, default 10000) evicts the oldest buffered message; the
    producer is not signaled (`Produce` still returns accepted).
-   *Closed by ADR-011:* backpressure is now the default — `Produce` returns
-   `ResourceExhausted` at a full budget (`reject` policy); drop-oldest remains
-   an explicit opt-in.
+   *Closed by ADR-011:* overload is now an explicit, counted policy
+   (`MQ_OVERFLOW_POLICY`). The default stays drop-oldest — deliberately, for
+   telemetry freshness — but evictions surface in `dropped_overflow_total`
+   instead of passing silently, and the `reject`/`block` opt-ins provide
+   lossless backpressure (`ResourceExhausted`) where every record matters.
 2. **Requeue at full ring → drop-newest.** Re-enqueueing unacked leases after a
    consumer disconnect evicts the newest (tail-side) entries when the ring is
    full, so a disconnect near capacity can destroy unrelated fresh messages.
@@ -106,9 +108,11 @@ are accepted consequences of the in-memory, fixed-capacity design:
    deferred to Phase 7. ADR-011's preStop drain shrinks the *rollout* loss
    window to ~zero with healthy consumers; crash loss remains until the WAL.
 
-Under the default policy neither eviction mode can fire; the split drop
-counters (`dropped_overflow_total`, `dropped_requeue_total`) remain as
-tripwires, alongside `rejected_total` for surfaced backpressure.
+The requeue-path eviction can no longer fire under any policy; enqueue-path
+eviction fires only as the deliberate freshness-first default and is always
+counted. The split counters (`dropped_overflow_total`,
+`dropped_requeue_total`, `rejected_total`) make every overload response
+observable.
 
 ## Compliance
 

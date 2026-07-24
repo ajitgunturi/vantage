@@ -25,9 +25,10 @@ type Config struct {
 	// or non-numeric values are silently ignored and the default is kept).
 	ConsumeCredit int
 	// OverflowPolicy selects Enqueue behavior at a full capacity budget:
-	// "reject" (default — backpressure via ResourceExhausted), "drop-oldest"
-	// (pre-hardening eviction), or "block" (bounded producer wait).
-	// Env: MQ_OVERFLOW_POLICY (invalid values are ignored, default kept).
+	// "drop-oldest" (default — telemetry freshness-first: the oldest reading is
+	// the least valuable under overload; evictions are counted), "reject"
+	// (lossless backpressure via ResourceExhausted), or "block" (bounded
+	// producer wait). Env: MQ_OVERFLOW_POLICY (invalid values are ignored).
 	OverflowPolicy string
 	// BlockTimeoutMS bounds the "block" policy's producer wait in milliseconds.
 	// Env: MQ_BLOCK_TIMEOUT_MS (default 1000; non-positive values ignored).
@@ -66,7 +67,7 @@ func FromEnv() Config {
 		HTTPAddr:       ":8080",
 		BufferSize:     10000,
 		ConsumeCredit:  20,
-		OverflowPolicy: string(queue.PolicyReject),
+		OverflowPolicy: string(queue.PolicyDropOldest),
 		BlockTimeoutMS: 1000,
 
 		MaxDeliveries:      5,
