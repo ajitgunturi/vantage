@@ -301,6 +301,33 @@ helm upgrade vantage deployments --reuse-values \
 > **kind caveat:** HPA requires `metrics-server`, which kind does not include by default.
 > Without it, `kubectl describe hpa` shows `TARGETS: <unknown>/80%` and no scaling occurs.
 
+### Prometheus metrics endpoints
+
+Every service exposes `GET /metrics` in Prometheus text format (ADR-014): the MQ exports queue
+depth, retry/DLQ lane counters, and in-flight gauges; the Gateway a request-latency histogram;
+the Streamer and Collector throughput counters. Pods carry `prometheus.io/*` scrape annotations.
+See [`deployments/monitoring/README.md`](../deployments/monitoring/README.md) for wiring these
+into a Prometheus stack.
+
+### Collector backlog-driven HPA
+
+The Collector sub-chart ships an `autoscaling/v2` HPA
+(`deployments/charts/collector/templates/hpa.yaml`, disabled by default) that scales on the
+**external metric `mq_queue_backlog`** (`mq_queue_depth + mq_retry_depth`) rather than CPU — a
+consumer bottlenecked on Postgres idles its CPU while the broker backlog grows. Requires
+kube-prometheus-stack + prometheus-adapter; setup and tuning
+(`collector.autoscaling.targetBacklogPerReplica`) in
+[`deployments/monitoring/README.md`](../deployments/monitoring/README.md) and
+[`ADR-014`](adr/ADR-014-prometheus-metrics-queue-depth-hpa.md).
+
+### Partitioned retention CronJob
+
+`gpu_metrics` is partitioned by UTC day (migration 000003). A nightly CronJob
+(`deployments/templates/retention-cronjob.yaml`) drops partitions past the retention window and
+pre-creates upcoming ones so the write path never waits on DDL. Configured via the `retention.*`
+Helm values (`enabled`, `days`, `precreateDays`, `schedule`). Design:
+[`ADR-012`](adr/ADR-012-daily-partitioning-retention.md).
+
 ### Structured logging
 
 All four services log through `log/slog` (stdlib, no external dependency) with a JSON handler.

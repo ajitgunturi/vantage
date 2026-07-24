@@ -54,7 +54,9 @@ Error codes: `404` for an unknown GPU UUID; `400` for a malformed RFC3339 time p
 
 ## Pagination
 
-`GET /api/v1/gpus/{id}/telemetry` supports cursor-free offset pagination:
+`GET /api/v1/gpus/{id}/telemetry` supports two pagination modes: `limit`/`offset` (includes
+`total`) and keyset cursor via `?cursor=` (see [Cursor (keyset) pagination](#cursor-keyset-pagination)
+below). The offset-mode parameters:
 
 | Query param | Default | Constraint | Meaning |
 |-------------|---------|-----------|---------|
@@ -70,7 +72,8 @@ Response envelope (replaces the former `X-Truncated`/`X-Row-Limit` headers):
     "limit": 100,
     "offset": 0,
     "total": 1234,
-    "has_next": true
+    "has_next": true,
+    "next_cursor": "opaque-token"
   }
 }
 ```

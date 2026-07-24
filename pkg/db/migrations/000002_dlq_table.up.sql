@@ -4,7 +4,9 @@
 -- 23 integrity violation) — transient DB errors never dead-letter.
 --
 -- The full TelemetryMessage is preserved as JSONB (protojson) so poison rows
--- can be inspected and replayed after the schema/constraint issue is fixed.
+-- can be inspected via SQL after the schema/constraint issue is fixed. No API
+-- surface exists for this table yet — inspect/replay endpoints and retention
+-- are future work (see docs/FUTURE.md, "Known operational gaps").
 CREATE TABLE IF NOT EXISTS gpu_metrics_dlq (
     id                BIGSERIAL   PRIMARY KEY,
     broker_id         BIGINT      NOT NULL, -- stable broker message id

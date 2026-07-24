@@ -75,6 +75,7 @@ progress:
 | 260703-fnl | final-review gap closure: WAL doc drift, STATE metrics, Helm replicaCount, dead code removal, stale comment, coverage lift; addenda: real DCGM CSV baked into streamer image (247 GPUs in kind); pagination.total in telemetry envelope (ADR-010 amended) | 2026-07-03 | 6589930 | [260703-fnl-final-review-gap-closure](./quick/260703-fnl-final-review-gap-closure/) |
 | 260703-p85 | make deploy requires explicit CSV (CSV=<path> / TTY prompt / scripted fail-loud); DEPLOY_CSV build arg is the only bake path; deleted build/fixture/dcgm_metrics.csv (testdata/fixture.csv is the single test fixture); README "Bring your own CSV" | 2026-07-03 | f65d6eb | [260703-p85-make-deploy-requires-explicit-csv-select](./quick/260703-p85-make-deploy-requires-explicit-csv-select/) |
 | fast | smoke phase03: read count(*)/count(distinct) from one snapshot — two-query MVCC race falsely failed the exactly-once check | 2026-07-02 | b89753c | — |
+| 260725-0c4 | docs consistency pass post-PR#13/#14: README rewritten as current-state + setup doc; cursor pagination, ProduceBatch, DLQ/metrics/HPA/retention documented; CLAUDE.md endpoint + SendBatch stack drift fixed; proto/config comments corrected (comment-only pkg/pb regen); monitoring scrape wiring step added; known operational gaps recorded in FUTURE.md | 2026-07-25 | 5cc3837 | [260725-0c4-docs-consistency-pass](./quick/260725-0c4-docs-consistency-pass/) |
 | Phase 05 P01 | 8 min | 2 tasks | 6 files |
 | Phase 05 P02 | 9 min | 2 tasks | 16 files |
 | Phase 05 P03 | 14 min | 2 tasks | 5 files |

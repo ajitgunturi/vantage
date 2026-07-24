@@ -340,11 +340,13 @@ func (x *ProduceBatchResponse) GetRejected() uint32 {
 
 type ProduceResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always true today: enqueue succeeds (drop-oldest may have silently evicted the oldest
-	// buffered message to make room, and that eviction is NOT signaled here). Validation
-	// failures surface as gRPC InvalidArgument errors, never as accepted=false — clients
-	// cannot branch on this field. Reserved for future backpressure semantics
-	// (ring-full → accepted=false / ResourceExhausted).
+	// Always true on the success path: a ProduceResponse is only returned when the
+	// enqueue succeeded (under the default drop-oldest policy the oldest buffered
+	// message may have been silently evicted to make room — that eviction is NOT
+	// signaled here). Failures surface as gRPC status errors, never as
+	// accepted=false: validation → InvalidArgument; queue full under the
+	// reject/block overflow policies → ResourceExhausted backpressure (implemented;
+	// producers back off and retry). Clients cannot branch on this field.
 	Accepted      bool `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

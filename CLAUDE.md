@@ -15,12 +15,12 @@ autonomous sessions — read it before planning or writing code.
 | Service | Entrypoint | Role | Protocols |
 |---|---|---|---|
 | **MQ** | `cmd/mq/` | Custom message broker, **from scratch** — in-memory only | gRPC (data) + HTTP (control) |
-| **Streamer** | `cmd/streamer/` | Loops the DCGM CSV forever, restamps `now`, publishes | gRPC client → MQ `Produce` |
+| **Streamer** | `cmd/streamer/` | Loops the DCGM CSV forever, restamps `now`, publishes | gRPC client → MQ `ProduceBatch` (primary; `Produce` = legacy per-row) |
 | **Collector** | `cmd/collector/` | Consumes MQ bidi stream (acks after persist), batch-inserts to Postgres | gRPC client + `pgxpool` |
 | **API Gateway** | `cmd/gateway/` | Read API over Postgres; OpenAPI auto-generated | HTTP/REST + `swag` |
 | **PostgreSQL** | (Helm dep) | Single source of truth; time-series schema | — |
 
-Data flow: `CSV → Streamer →(gRPC Produce)→ MQ →(gRPC Consume bidi stream; Collector acks)→ Collector → Postgres → API Gateway → client`
+Data flow: `CSV → Streamer →(gRPC ProduceBatch)→ MQ →(gRPC Consume bidi stream; Collector acks)→ Collector → Postgres → API Gateway → client`
 
 ---
 
@@ -99,7 +99,7 @@ make kind-up / helm-install / kind-down   # local k8s lifecycle
 
 API Gateway endpoints (exact):
 `GET /api/v1/gpus` · `GET /api/v1/gpus/{id}/telemetry` · `…/telemetry?start_time=…&end_time=…`
-MQ endpoints: gRPC `Produce` (unary), `Consume` (**bidi stream**: server→msgs, client→credit+acks; ADR-001) · HTTP `GET /api/v1/queue/inspect`.
+MQ endpoints: gRPC `ProduceBatch` (unary, primary), `Produce` (unary, legacy per-row), `Consume` (**bidi stream**: server→msgs, client→credit+acks; ADR-001) · HTTP `GET /api/v1/queue/inspect`, `GET /api/v1/queue/dlq`, `POST /api/v1/queue/dlq/replay`, `GET /metrics`, `GET /healthz`, `GET /readyz`.
 
 ---
 

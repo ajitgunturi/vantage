@@ -107,6 +107,32 @@ sampling rate at the source rather than letting the ring decide which readings s
 Telemetry tolerates lower resolution; it does not tolerate staleness. For workloads where every
 record matters, the `reject` policy already provides lossless backpressure — and the counters
 (`dropped_overflow_total`, `rejected_total`, queue depth) are the operator signal to scale
-consumers, raise `MQ_BUFFER_SIZE`, or add partitions instead. A Prometheus `/metrics` export of
-these counters (also future work) is the natural trigger for that scaling loop; sampling is the
-*automated* response for the freshness-first default.
+consumers, raise `MQ_BUFFER_SIZE`, or add partitions instead. The Prometheus `/metrics` export of
+these counters **shipped** (every service exposes `/metrics`; the backlog HPA consumes them —
+ADR-014) and is the natural trigger for that scaling loop; sampling is the *automated* response
+for the freshness-first default.
+
+## Known operational gaps (tracked, post-v1)
+
+Found during the post-v1 docs consistency audit. Recorded honestly as out-of-scope future work —
+none block the v1 pipeline, all are operational polish.
+
+- **Collector poison DLQ has no surface.** `gpu_metrics_dlq` (migration 000002) is inspectable
+  only via SQL: no API inspect/replay endpoint, no alert on growth, and the table is neither
+  partitioned nor covered by the retention CronJob.
+- **Broker DLQ replay is coarse.** `POST /api/v1/queue/dlq/replay` re-enqueues everything
+  (no per-message selection), resets delivery attempts, and is unauthenticated like the rest of
+  the control plane.
+- **Streamer batch size is unclamped client-side.** `STREAMER_BATCH_SIZE` has no client-side
+  clamp against the server's `maxBatchSize=1000`; an oversized batch gets `InvalidArgument`,
+  which the retry loop treats as transient and retries.
+- **Retention DEFAULT-partition wedge.** After missed runs, rows can land in the DEFAULT
+  partition and `ensure_partitions` can wedge on it (a new daily partition's range overlaps the
+  stranded rows); CronJob failures raise no alert.
+- **MQ lease sweep interval hardcoded.** The 100ms redelivery sweep interval has no env var or
+  Helm values knob.
+- **`StoreStats.DLQEvictedTotal` not exported.** Tracked internally but surfaced in neither
+  `/metrics` nor `/api/v1/queue/inspect`.
+- **No ServiceMonitor/PodMonitor shipped.** Metrics discovery relies on `prometheus.io/*` pod
+  annotations plus an `additionalScrapeConfigs` entry (see
+  `deployments/monitoring/README.md`); a chart-shipped PodMonitor would remove that manual step.

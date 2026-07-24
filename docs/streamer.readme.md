@@ -3,7 +3,8 @@
 ← back to the [README](../README.md)
 
 The Streamer (`cmd/streamer/`) loops a DCGM metrics CSV forever, restamps each record with the
-current UTC time, and publishes to the MQ via the generated gRPC `Produce` client. Up to 10
+current UTC time, and publishes batches to the MQ via the generated gRPC `ProduceBatch` client
+(`STREAMER_BATCH_SIZE=1` falls back to the legacy per-row `Produce` path). Up to 10
 instances run concurrently (soak-proven in Phase 5).
 
 ## Prerequisites
@@ -41,6 +42,7 @@ Built with `make build`.
 | `STREAMER_MQ_ADDR` | `:50051` | gRPC address of the MQ server |
 | `STREAMER_CSV_PATH` | — | Path to the DCGM metrics CSV (required) |
 | `STREAMER_LOOP_DELAY_MS` | `1` | Inter-row sleep in ms; 0 disables |
+| `STREAMER_BATCH_SIZE` | `100` | Rows per `ProduceBatch` call; `1` = legacy per-row `Produce` |
 | `STREAMER_HEALTH_ADDR` | `:9000` | Health-endpoint listen address (`/healthz`, `/readyz`) |
 
 ## Restamping & GPU identity (D-04)

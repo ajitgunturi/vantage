@@ -118,7 +118,7 @@ request more than `MAX_ROWS` rows per page.
 |---|---|
 | Keep `X-Truncated` / `X-Row-Limit` headers | Non-standard; clients miss them unless they specifically inspect headers; no real pagination (can only tell if truncated, not how to fetch the next page). Finding F-06 in the audit rated this as a user-experience gap requiring resolution. |
 | `COUNT(*)` for total row count | Correct — provides `total_count` to clients. Extra DB round-trip per request; adds latency proportional to table size. Originally rejected in favour of the sentinel; **adopted by the 2026-07-03 amendment** (owner directive) for the `total` field, while the sentinel still drives `has_next`. |
-| Keyset / cursor-based pagination | Scales to very large datasets with no `OFFSET` scan penalty. Heavier implementation: requires a stable sort key exposed in the response, opaque cursor encoding, and client bookmarking. `OFFSET` is sufficient for the fixture-scale read API and simpler to implement and test. |
+| Keyset / cursor-based pagination *(superseded — see amendment below)* | Scales to very large datasets with no `OFFSET` scan penalty. Heavier implementation: requires a stable sort key exposed in the response, opaque cursor encoding, and client bookmarking. `OFFSET` is sufficient for the fixture-scale read API and simpler to implement and test. **Superseded by the 2026-07-24 amendment: keyset cursor mode is now implemented alongside offset.** |
 | Separate pagination metadata endpoint | Requires two API calls per "page with metadata" load. Unnecessary complexity when the envelope pattern is simpler and standard. |
 
 
