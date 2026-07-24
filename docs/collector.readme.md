@@ -42,6 +42,22 @@ of that natural key. The E2E test (QA-03) proves this end-to-end under
 > collisions can cause `ON CONFLICT DO NOTHING` to silently drop a duplicate row. This is accepted
 > by design — see [`ADR-002`](adr/ADR-002-natural-key-microsecond-collision.md).
 
+## Poison rows — bisect-on-failure + dead-letter table
+
+pgx v5 `SendBatch` runs a batch in **one implicit transaction**, so a single row that
+deterministically fails at exec time (constraint violation, numeric overflow — SQLSTATE class
+22/23) would abort the whole batch, leave it unacked, and loop through redelivery forever. The
+Collector now isolates such poison instead of wedging (ADR-011):
+
+- On a poison-class batch error, the batch is **bisected**: each half retries in its own
+  transaction, recursing to the single failing row in O(log n) round-trips. Re-running halves
+  that already landed is harmless — the insert is the idempotent `ON CONFLICT DO NOTHING` upsert.
+- The isolated row is preserved in **`gpu_metrics_dlq`** (stable broker id, delivery attempts,
+  full protojson payload, SQLSTATE + message), then **acked** — the DLQ insert is the durable
+  handling that makes the ack safe. Inspect or replay it with SQL against that table.
+- **Transient** errors (connection loss, timeouts, serialization, admin shutdown) never
+  dead-letter: the batch stays unacked and redelivers exactly as before.
+
 ## Health
 
 The Collector runs a lightweight health listener on `:9001` (`COLLECTOR_HEALTH_ADDR`).

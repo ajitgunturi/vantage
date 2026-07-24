@@ -22,8 +22,16 @@ Configuration is env-first (all optional):
 |---|---|---|
 | `MQ_GRPC_ADDR` | `:50051` | gRPC data-plane listen address (`Produce`, `Consume`) |
 | `MQ_HTTP_ADDR` | `:8080` | HTTP control-plane listen address |
-| `MQ_BUFFER_SIZE` | `10000` | Ring-buffer capacity (drop-oldest when full) |
+| `MQ_BUFFER_SIZE` | `10000` | **Capacity budget**: queued (main + retry) **plus in-flight** messages never exceed it. Overflow behavior is `MQ_OVERFLOW_POLICY`. |
 | `MQ_CONSUME_CREDIT` | `20` | Broker-side **fallback** in-flight window, applied when a consumer's first credit message is ≤ 0. Non-positive/non-numeric values are ignored and the default is kept. |
+| `MQ_OVERFLOW_POLICY` | `reject` | Enqueue behavior at a full budget: `reject` (backpressure — `Produce` returns `ResourceExhausted`), `drop-oldest` (evict oldest queued; opt-in), `block` (bounded producer wait). |
+| `MQ_BLOCK_TIMEOUT_MS` | `1000` | Max producer wait under the `block` policy before `ResourceExhausted`. |
+| `MQ_MAX_DELIVERIES` | `5` | Deliveries before a message is routed to the DLQ instead of retried. |
+| `MQ_DLQ_CAPACITY` | `1000` | Dead-letter lane budget (separate from `MQ_BUFFER_SIZE`); DLQ overflow evicts its oldest entry (counted). |
+| `MQ_RETRY_BACKOFF_BASE_MS` | `500` | Redelivery visibility delay after the 1st failed delivery; doubles per attempt. |
+| `MQ_RETRY_BACKOFF_MAX_MS` | `30000` | Cap on the redelivery visibility delay. |
+| `MQ_LEASE_TTL_MS` | `30000` | How long a delivery may stay unacked before the sweeper reclaims it for redelivery. |
+| `MQ_DRAIN_TIMEOUT_MS` | `20000` | SIGTERM drain window: refuse producers, keep serving consumers, then exit. |
 
 ## Delivery semantics — broker-side at-least-once
 
@@ -35,47 +43,77 @@ As of Phase 01.1 the MQ delivers **at-least-once** over a **bidirectional** `Con
   control**, no over-pull). If that first credit is **≤ 0**, the broker substitutes its own default
   (`MQ_CONSUME_CREDIT`, default `20`); any `C` above the **ceiling of `1000`** is clamped down so an
   over-large initial credit can't exhaust broker memory.
-- The broker assigns each message a monotonic **id** and **leases** it to the consumer. A message
-  leaves broker custody **only when the consumer acks that id** — `Consume{AckId: msg.id}`.
-- If a consumer disconnects with **unacked** leases, those messages are **re-enqueued at the front
-  and redelivered** to a surviving consumer — **no loss while the ring has free capacity** (see
-  [Overload semantics](#overload-semantics)). Redelivery can produce **duplicates**, which the
-  (idempotent) Collector absorbs downstream.
+- The broker assigns each message a stable monotonic **id at Enqueue** (kept across redeliveries,
+  so consumers can dedup by id) and **leases** it to the consumer, stamping `delivery_attempts`
+  (1 on first delivery). A message leaves broker custody **only when the consumer acks that id**
+  — `Consume{AckId: msg.id}`.
+- If a consumer disconnects with **unacked** leases, those messages move to the **retry lane**
+  and are redelivered to a survivor after an exponential **visibility backoff**
+  (`MQ_RETRY_BACKOFF_BASE_MS × 2^(attempts−1)`, capped) — **no loss, and no eviction**: in-flight
+  leases count against the capacity budget, so the requeue path always has guaranteed headroom.
+  Redelivery can produce **duplicates**, which the (idempotent) Collector absorbs downstream.
+- A **lease TTL** (`MQ_LEASE_TTL_MS`) covers the live-but-stuck consumer: leases unacked past the
+  deadline are reclaimed by a background sweeper into the retry lane, and the stuck consumer's
+  late acks become no-ops (its credit is revoked one slot per reclaimed lease).
+- A message delivered `MQ_MAX_DELIVERIES` times routes to the bounded **dead-letter lane** instead
+  of recirculating — see [Dead-letter queue](#dead-letter-queue).
 - Steady state with all consumers acking is still **unique delivery** — each message goes to exactly
   one consumer.
 
 ### Overload semantics
 
-The at-least-once guarantee is scoped by the ring buffer's capacity (`MQ_BUFFER_SIZE`, see the
-config table above). When the ring is **full**, two eviction modes can silently discard messages:
+The capacity budget (`MQ_BUFFER_SIZE`) counts queued **and** in-flight messages. At a full budget,
+`MQ_OVERFLOW_POLICY` decides what `Produce` does:
 
-- **Producer overload — drop-oldest.** `Enqueue` on a full ring evicts the *oldest* buffered
-  message to make room. The producer is not told: `Produce` still returns `accepted=true`, so
-  sustained production faster than consumption loses the head of the queue invisibly.
-- **Requeue at full ring — drop-newest.** Re-enqueueing unacked leases after a consumer
-  disconnect evicts the *newest* (tail-side) entries when the ring is full — a slow consumer
-  that disconnects near a full ring can destroy unrelated, freshly produced messages.
+- **`reject` (default) — backpressure, zero loss.** `Produce` returns `ResourceExhausted`; the
+  producer's retry-with-backoff (built into the Streamer) becomes real flow control. Refusals are
+  counted in `rejected_total` — they are *visible pushback*, not loss.
+- **`drop-oldest` (opt-in)** — the pre-hardening behavior for deployments that prefer fresh data
+  over old under overload: the oldest *queued* message is evicted (never an in-flight lease),
+  counted in `dropped_overflow_total`.
+- **`block` (opt-in)** — the producer waits up to `MQ_BLOCK_TIMEOUT_MS` for space, then
+  `ResourceExhausted`.
 
-Both eviction modes increment the `dropped_total` counter on
-`GET /api/v1/queue/inspect` — a non-zero value is the signal that loss has occurred. Sizing
-`MQ_BUFFER_SIZE` above the worst-case backlog is currently the only mitigation.
+The requeue path **cannot evict**: because leases count against the budget, releasing them always
+has headroom. `dropped_requeue_total` exists as a tripwire and must stay `0`.
 
-Storage is **in-memory only** (a ring buffer behind the `Store` interface); crash durability is the
-opt-in WAL backend designed for Phase 7 (deferred post-v1; see [`docs/FUTURE.md`](FUTURE.md)).
+Storage is **in-memory only** (lanes + lease table behind the `Store` interface); crash durability
+is the opt-in WAL backend designed for Phase 7 (deferred post-v1; see [`docs/FUTURE.md`](FUTURE.md)).
+The **preStop drain** (`MQ_DRAIN_TIMEOUT_MS`) shrinks the rollout window: on SIGTERM the broker
+refuses producers (readiness flips) while consumers keep acking, and exits once drained.
+
+### Dead-letter queue
+
+A message that exhausts `MQ_MAX_DELIVERIES` is parked in a bounded DLQ lane with its attempt count
+and reason — a hot poison message can no longer wedge or starve the pipeline:
+
+```sh
+curl -s localhost:8080/api/v1/queue/dlq            # list entries (?limit=N; oldest first)
+curl -s -X POST localhost:8080/api/v1/queue/dlq/replay   # re-enqueue as fresh work
+```
+
+Replay preserves each message's stable id, resets its attempts, and respects the capacity budget
+(partial replay reports the remainder). DLQ overflow evicts the oldest dead-lettered entry
+(`dlq_evicted`, bounded lane — the DLQ cannot grow without limit).
 
 ## Inspect the queue
 
 ```sh
 curl -s localhost:8080/api/v1/queue/inspect
-# {"capacity":10000,"depth":0,"produced_total":40,"delivered_total":46,"consumed_total":40,
-#  "redelivered_total":6,"dropped_total":0,"active_consumers":0,"in_flight":0}
+# {"capacity":10000,"depth":0,"retry_depth":0,"dlq_depth":0,"produced_total":40,
+#  "rejected_total":0,"delivered_total":46,"consumed_total":40,"redelivered_total":6,
+#  "dropped_total":0,"dropped_overflow_total":0,"dropped_requeue_total":0,
+#  "dead_lettered_total":0,"lease_expired_total":0,"active_consumers":0,"in_flight":0}
 ```
 
 Counter meanings (at-least-once, D-09): `produced_total` = accepted by Produce ·
-`delivered_total` = messages **sent** to consumers · `consumed_total` = **acks** (confirmed
-deliveries — *not* sends) · `redelivered_total` = re-enqueued after a disconnect-with-unacked ·
-`in_flight` = currently sent-but-unacked. The identity `delivered = consumed + redelivered +
-in_flight` holds at rest.
+`rejected_total` = Produce refusals under backpressure (**not** loss) · `delivered_total` =
+messages **sent** to consumers · `consumed_total` = **acks** (confirmed deliveries — *not*
+sends) · `redelivered_total` = requeued for redelivery (disconnect / failed send) ·
+`lease_expired_total` = leases reclaimed by the TTL sweeper · `dead_lettered_total` = messages
+routed to the DLQ · `in_flight` = currently sent-but-unacked. Loss counters split by cause:
+`dropped_overflow_total` (opt-in drop-oldest policy) + `dropped_requeue_total` (structural zero —
+tripwire) = `dropped_total`.
 
 ## Produce & consume a message
 
@@ -125,7 +163,8 @@ redelivery over the wire.
 
 The MQ's correctness under concurrency is proven by race-detector tests in `internal/server` and
 `internal/queue` (run at `-count=50`): broker-side at-least-once with **no loss** on consumer
-disconnect (ring capacity permitting — see [Overload semantics](#overload-semantics)),
+disconnect (in-flight leases count against the capacity budget, so the requeue path never
+evicts — see [Overload semantics](#overload-semantics)),
 **no over-pull** beyond credit `C`, **redelivery** of unacked leases to survivors,
 **unique** steady-state delivery, **safe** ack handling (unknown/double acks are no-ops), and no
 goroutine leaks.
