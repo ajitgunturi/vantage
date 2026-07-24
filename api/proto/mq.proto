@@ -12,7 +12,10 @@ option go_package = "github.com/ajitg/vantage/pkg/pb";
 // WARNING: Field numbers are stable once deployed. Never renumber fields.
 // Adding new fields is backwards compatible; removing or renumbering is not.
 message TelemetryMessage {
-    string timestamp   = 1;  // ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339)
+    // ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339Nano).
+    // Nanosecond precision is required (STREAM-02, ADR-002): second-granularity RFC3339
+    // collides concurrent readings into duplicate (gpu_id, metric_name, timestamp) natural keys.
+    string timestamp   = 1;
     string metric_name = 2;  // e.g., "DCGM_FI_DEV_GPU_UTIL"
     string gpu_id      = 3;  // e.g., "0"
     string device      = 4;  // e.g., "nvidia0"
@@ -35,7 +38,12 @@ message ProduceRequest {
 }
 
 message ProduceResponse {
-    bool accepted = 1; // true = enqueued (or drop-oldest fired); false only on validation error
+    // Always true today: enqueue succeeds (drop-oldest may have silently evicted the oldest
+    // buffered message to make room, and that eviction is NOT signaled here). Validation
+    // failures surface as gRPC InvalidArgument errors, never as accepted=false — clients
+    // cannot branch on this field. Reserved for future backpressure semantics
+    // (ring-full → accepted=false / ResourceExhausted).
+    bool accepted = 1;
 }
 
 // ConsumeClientMsg is streamed client→server on the bidi Consume RPC (D-03, ADR-001).
