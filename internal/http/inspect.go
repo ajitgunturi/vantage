@@ -23,16 +23,31 @@ import (
 //     disconnected with unacked leases.
 //   - InFlight — current gauge of messages sent but not yet acked (sum of all
 //     per-consumer lease tables).
+//
+// The delivery hardening adds cause-split loss/backpressure counters:
+//   - RejectedTotal — Produce refusals under backpressure (NOT loss; the
+//     producer retries with backoff).
+//   - DroppedOverflowTotal — drop-oldest evictions (opt-in policy only).
+//   - DroppedRequeueTotal — requeue evictions; structurally 0 under
+//     capacity accounting — requeue never evicts (tripwire — alert if it ever moves).
+//   - DroppedTotal — sum of drop causes (back-compat).
 type InspectResponse struct {
-	Capacity         int   `json:"capacity"`
-	Depth            int   `json:"depth"`
-	ProducedTotal    int64 `json:"produced_total"`
-	DeliveredTotal   int64 `json:"delivered_total"`
-	ConsumedTotal    int64 `json:"consumed_total"`
-	RedeliveredTotal int64 `json:"redelivered_total"`
-	DroppedTotal     int64 `json:"dropped_total"`
-	ActiveConsumers  int32 `json:"active_consumers"`
-	InFlight         int64 `json:"in_flight"`
+	Capacity             int   `json:"capacity"`
+	Depth                int   `json:"depth"`
+	RetryDepth           int   `json:"retry_depth"`
+	DLQDepth             int   `json:"dlq_depth"`
+	ProducedTotal        int64 `json:"produced_total"`
+	RejectedTotal        int64 `json:"rejected_total"`
+	DeliveredTotal       int64 `json:"delivered_total"`
+	ConsumedTotal        int64 `json:"consumed_total"`
+	RedeliveredTotal     int64 `json:"redelivered_total"`
+	DroppedTotal         int64 `json:"dropped_total"`
+	DroppedOverflowTotal int64 `json:"dropped_overflow_total"`
+	DroppedRequeueTotal  int64 `json:"dropped_requeue_total"`
+	DeadLetteredTotal    int64 `json:"dead_lettered_total"`
+	LeaseExpiredTotal    int64 `json:"lease_expired_total"`
+	ActiveConsumers      int32 `json:"active_consumers"`
+	InFlight             int64 `json:"in_flight"`
 }
 
 // InspectHandler returns an http.HandlerFunc that responds with a JSON snapshot
@@ -43,15 +58,22 @@ func InspectHandler(srv *server.MQServer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		st := srv.Stats()
 		resp := InspectResponse{
-			Capacity:         st.Capacity,
-			Depth:            st.Depth,
-			ProducedTotal:    st.Produced,
-			DeliveredTotal:   st.Delivered,
-			ConsumedTotal:    st.Consumed,
-			RedeliveredTotal: st.Redelivered,
-			DroppedTotal:     st.Dropped,
-			ActiveConsumers:  st.ActiveConsumers,
-			InFlight:         st.InFlight,
+			Capacity:             st.Capacity,
+			Depth:                st.Depth,
+			RetryDepth:           st.RetryDepth,
+			DLQDepth:             st.DLQDepth,
+			ProducedTotal:        st.Produced,
+			RejectedTotal:        st.Rejected,
+			DeliveredTotal:       st.Delivered,
+			ConsumedTotal:        st.Consumed,
+			RedeliveredTotal:     st.Redelivered,
+			DroppedTotal:         st.Dropped,
+			DroppedOverflowTotal: st.DroppedOverflow,
+			DroppedRequeueTotal:  st.DroppedRequeue,
+			DeadLetteredTotal:    st.DeadLettered,
+			LeaseExpiredTotal:    st.LeaseExpired,
+			ActiveConsumers:      st.ActiveConsumers,
+			InFlight:             st.InFlight,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

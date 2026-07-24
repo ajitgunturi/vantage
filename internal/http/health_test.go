@@ -32,7 +32,7 @@ func TestHealthz(t *testing.T) {
 // TestReadyz_Serving verifies that ReadyzHandler returns 200 while the server
 // is running (i.e., before Shutdown() is called).
 func TestReadyz_Serving(t *testing.T) {
-	s := queue.NewRingStore(100)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 100})
 	srv := server.NewMQServer(s, 10)
 	defer srv.Shutdown()
 
@@ -51,7 +51,7 @@ func TestReadyz_Serving(t *testing.T) {
 // TestReadyz_ShuttingDown verifies that ReadyzHandler returns 503 once
 // Shutdown() has been called — the readiness gate for Kubernetes pod eviction.
 func TestReadyz_ShuttingDown(t *testing.T) {
-	s := queue.NewRingStore(100)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 100})
 	srv := server.NewMQServer(s, 10)
 
 	srv.Shutdown() // signal shutdown; handler must now return 503
@@ -71,7 +71,7 @@ func TestReadyz_ShuttingDown(t *testing.T) {
 // TestIsShuttingDown verifies the MQServer.IsShuttingDown method: false before
 // Shutdown(), true after — non-blocking channel select, no lock.
 func TestIsShuttingDown(t *testing.T) {
-	s := queue.NewRingStore(100)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 100})
 	srv := server.NewMQServer(s, 10)
 
 	assert.False(t, srv.IsShuttingDown(), "must report false before Shutdown()")

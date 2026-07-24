@@ -71,6 +71,20 @@ VALUES
     ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING`
 
+// DLQInsertSQL dead-letters one poison row into gpu_metrics_dlq:
+// a row that deterministically fails the gpu_metrics insert (SQLSTATE class
+// 22/23) is preserved verbatim (protojson payload) with the failure reason so
+// the pipeline can ack it and move on instead of redelivering forever.
+//
+//	$1 broker_id         — TelemetryMessage.Id (stable broker id)
+//	$2 delivery_attempts — TelemetryMessage.DeliveryAttempts at failure time
+//	$3 payload           — protojson-marshaled TelemetryMessage
+//	$4 error             — SQLSTATE + message from the failed insert
+const DLQInsertSQL = `INSERT INTO gpu_metrics_dlq
+    (broker_id, delivery_attempts, payload, error)
+VALUES
+    ($1, $2, $3, $4)`
+
 // FromProto converts a protobuf TelemetryMessage into a GpuMetric.
 //
 // UUID mapping (COLL-04 / D-04): GpuMetric.GpuID is set from msg.GetUuid()

@@ -39,7 +39,7 @@ const bufSize = 1 << 20 // 1 MB in-memory transport buffer
 func newBufconnMQ(t *testing.T) *grpc.ClientConn {
 	t.Helper()
 	lis := bufconn.Listen(bufSize)
-	mqSrv := server.NewMQServer(queue.NewRingStore(5000), 100)
+	mqSrv := server.NewMQServer(queue.NewBroker(queue.BrokerConfig{Capacity: 5000}), 100)
 	s := grpc.NewServer()
 	pb.RegisterMQServiceServer(s, mqSrv)
 	t.Cleanup(func() {

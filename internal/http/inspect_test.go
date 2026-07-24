@@ -64,7 +64,7 @@ var _ pb.MQService_ConsumeServer = (*ackingStream)(nil)
 // with Content-Type application/json and a valid body containing all six
 // required fields, with ProducedTotal reflecting the number of produced messages.
 func TestInspect_JSON(t *testing.T) {
-	s := queue.NewRingStore(100)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: 100})
 	srv := server.NewMQServer(s, 10)
 	defer srv.Shutdown()
 
@@ -97,7 +97,7 @@ func TestInspect_JSON(t *testing.T) {
 // consumed_total == N and in_flight == 0.
 func TestInspect_AtLeastOnceCounters(t *testing.T) {
 	const N = 25
-	s := queue.NewRingStore(N * 2)
+	s := queue.NewBroker(queue.BrokerConfig{Capacity: N * 2})
 	srv := server.NewMQServer(s, 8)
 	defer srv.Shutdown()
 

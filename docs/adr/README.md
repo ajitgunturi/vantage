@@ -18,6 +18,7 @@ alternatives that were rejected.
 | [ADR-008](ADR-008-chart-enforced-single-replica-post-install-hook.md) | Chart-Enforced Single Replica and Post-Install Migration Hook | Accepted (deviation from plan item D-09) | 2026-07-02 | 5 |
 | [ADR-009](ADR-009-opt-in-wal-extension.md) | Opt-In WAL Persistence Backend Behind the `Store` Interface | Accepted (pending — Phase 7) | 2026-06-27 | roadmap / 7 |
 | [ADR-010](ADR-010-telemetrypage-pagination-envelope.md) | `TelemetryPage` Pagination Envelope with Limit+1 Sentinel | Accepted | 2026-07-03 | 6 |
+| [ADR-011](ADR-011-broker-delivery-hardening.md) | Broker Delivery Hardening — Backpressure, Retry/DLQ Lanes, Lease TTL, preStop Drain | Accepted | 2026-07-24 | post-v1 |
 
 > ADR-003 through ADR-010 were backfilled on 2026-07-03. The decisions themselves
 > were made in the phases listed above; only the written records are retroactive.

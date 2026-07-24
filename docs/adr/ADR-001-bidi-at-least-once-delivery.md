@@ -92,20 +92,27 @@ are accepted consequences of the in-memory, fixed-capacity design:
 
 1. **Producer overload → drop-oldest.** `Enqueue` on a full ring
    (`MQ_BUFFER_SIZE`, default 10000) evicts the oldest buffered message; the
-   producer is not signaled (`Produce` still returns accepted). Mitigation path:
-   producer backpressure (`ResourceExhausted` / `accepted=false` on ring-full) —
-   tracked as future work.
+   producer is not signaled (`Produce` still returns accepted).
+   *Closed by ADR-011:* overload is now an explicit, counted policy
+   (`MQ_OVERFLOW_POLICY`). The default stays drop-oldest — deliberately, for
+   telemetry freshness — but evictions surface in `dropped_overflow_total`
+   instead of passing silently, and the `reject`/`block` opt-ins provide
+   lossless backpressure (`ResourceExhausted`) where every record matters.
 2. **Requeue at full ring → drop-newest.** Re-enqueueing unacked leases after a
    consumer disconnect evicts the newest (tail-side) entries when the ring is
    full, so a disconnect near capacity can destroy unrelated fresh messages.
-   Mitigation path: capacity accounting that counts in-flight leases against
-   ring capacity, guaranteeing requeue headroom.
+   *Closed by ADR-011:* in-flight leases now count against the capacity
+   budget, so the requeue path always has headroom and cannot evict.
 3. **Broker restart → total loss** of ring and lease state (single replica,
    in-memory). Accepted in ADR-009; the opt-in WAL backend that closes this is
-   deferred to Phase 7.
+   deferred to Phase 7. ADR-011's preStop drain shrinks the *rollout* loss
+   window to ~zero with healthy consumers; crash loss remains until the WAL.
 
-Both eviction modes increment the `dropped_total` inspect counter — the
-operational signal that a boundary was crossed.
+The requeue-path eviction can no longer fire under any policy; enqueue-path
+eviction fires only as the deliberate freshness-first default and is always
+counted. The split counters (`dropped_overflow_total`,
+`dropped_requeue_total`, `rejected_total`) make every overload response
+observable.
 
 ## Compliance
 

@@ -24,6 +24,11 @@ spec:
         app.kubernetes.io/name: mq
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      # preStop drain: SIGTERM makes the broker refuse Produce (readiness
+      # flips) while consumers keep acking the backlog for up to
+      # MQ_DRAIN_TIMEOUT_MS, then it exits. The grace period must cover
+      # drain (20s) + GracefulStop race (5s) + HTTP shutdown (5s).
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 35 }}
       containers:
         - name: mq
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -42,6 +47,21 @@ spec:
               value: "10000"
             - name: MQ_CONSUME_CREDIT
               value: "20"
+            # Delivery-hardening knobs — values.yaml `hardening`.
+            - name: MQ_OVERFLOW_POLICY
+              value: {{ .Values.hardening.overflowPolicy | quote }}
+            - name: MQ_MAX_DELIVERIES
+              value: {{ .Values.hardening.maxDeliveries | quote }}
+            - name: MQ_DLQ_CAPACITY
+              value: {{ .Values.hardening.dlqCapacity | quote }}
+            - name: MQ_RETRY_BACKOFF_BASE_MS
+              value: {{ .Values.hardening.retryBackoffBaseMS | quote }}
+            - name: MQ_RETRY_BACKOFF_MAX_MS
+              value: {{ .Values.hardening.retryBackoffMaxMS | quote }}
+            - name: MQ_LEASE_TTL_MS
+              value: {{ .Values.hardening.leaseTTLMS | quote }}
+            - name: MQ_DRAIN_TIMEOUT_MS
+              value: {{ .Values.hardening.drainTimeoutMS | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.livenessProbe }}

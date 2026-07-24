@@ -1,58 +1,95 @@
-// Package queue provides the storage seam for the MQ service.
-// The Store interface is shaped so a WAL-backed backend (Phase 6) can be added
-// without modifying any consumer code — consumers depend only on this interface.
+// Package queue provides the storage engine and seam for the MQ service.
+// The Store interface is shaped so a WAL-backed backend (ADR-009, Phase 7) can
+// be added without modifying the gRPC layer — the server depends only on this
+// interface. The in-memory Broker is the default implementation.
 package queue
 
-import "github.com/ajitg/vantage/pkg/pb"
+import (
+	"context"
 
-// StoreStats is a point-in-time snapshot of buffer state. It is a plain value
-// type (safe to copy); callers cannot mutate internal Store state through it.
+	"github.com/ajitg/vantage/pkg/pb"
+)
+
+// StoreStats is a point-in-time snapshot of broker state. It is a plain value
+// type (safe to copy); callers cannot mutate internal state through it.
 type StoreStats struct {
-	// Depth is the number of messages currently buffered.
+	// Depth is the number of messages queued for delivery (main lane).
 	Depth int
-	// Capacity is the maximum number of messages the buffer can hold.
-	// -1 signals unbounded — reserved for future WAL backend.
+	// RetryDepth is the number of messages awaiting redelivery in the retry
+	// lane — inside or past their visibility backoff window.
+	RetryDepth int
+	// DLQDepth is the number of dead-lettered messages currently held.
+	DLQDepth int
+	// Capacity is the total budget: queued + in-flight never exceeds it.
+	// -1 signals unbounded — reserved for a future WAL backend.
 	Capacity int
-	// Dropped is the cumulative count of messages overwritten by drop-oldest
-	// semantics since process start. This is the authoritative source for the
-	// DroppedTotal field in the HTTP inspect response.
+	// InFlight is the number of leased (delivered-but-unacked) messages.
+	InFlight int64
+	// RejectedTotal counts Enqueue refusals (backpressure surfaced to the
+	// producer — NOT message loss; the producer retries).
+	RejectedTotal int64
+	// DroppedOverflow counts drop-oldest evictions on Enqueue — non-zero only
+	// under the opt-in drop-oldest policy (drop counters are split by cause).
+	DroppedOverflow int64
+	// DroppedRequeue counts requeue-path evictions. Structurally zero under
+	// capacity accounting; kept as a tripwire — alert if it ever moves.
+	DroppedRequeue int64
+	// Dropped is the sum of all drop causes (back-compat with dropped_total).
 	Dropped int64
+	// DeadLetteredTotal counts messages routed to the DLQ after exhausting
+	// MaxDeliveries.
+	DeadLetteredTotal int64
+	// DLQEvictedTotal counts dead-lettered entries lost to DLQ overflow
+	// (bounded DLQ, drop-oldest within the DLQ only).
+	DLQEvictedTotal int64
+	// LeaseExpiredTotal counts leases reclaimed by the TTL sweeper.
+	LeaseExpiredTotal int64
 }
 
-// Store is the storage seam for the MQ service. The in-memory ring-buffer
-// backend (RingStore) is the default. A WAL-backed implementation satisfying
-// this interface will be added in Phase 6 without modifying any consumer code.
+// Store is the storage seam for the MQ service (ADR-009). The in-memory Broker
+// is the default backend; a WAL-backed implementation would persist the lanes
+// and lease table behind the same contract.
 //
-// Contract:
-//   - Enqueue never blocks; drop-oldest fires when at capacity, so Produce
-//     never returns ResourceExhausted in the default in-memory mode.
-//   - TryDequeue is non-blocking; returns (nil, false) when the buffer is empty.
-//   - Enqueue precondition: callers (MQServer.Produce) must validate msg != nil
-//     before calling. RingStore stores pointers as-is without nil-checking.
+// Contract (delivery hardening):
+//   - Enqueue assigns the message's stable broker id and admits it under the
+//     capacity budget (queued + in-flight <= capacity). At a full budget the
+//     configured overflow policy applies; ErrFull signals backpressure.
+//     Only PolicyBlock may block, bounded by BlockTimeout and ctx.
+//   - Lease/Ack/ReleaseLease/ReleaseConsumer manage broker-owned leases with
+//     per-consumer ownership guards; all are non-blocking.
+//   - Enqueue precondition: callers (MQServer.Produce) must validate msg != nil.
 type Store interface {
-	// Enqueue adds msg to the buffer. Returns true if drop-oldest fired (a slot
-	// was overwritten), false if a free slot was used. Never blocks.
-	Enqueue(msg *pb.TelemetryMessage) bool
+	// Enqueue admits msg under the capacity budget and assigns its broker id.
+	// Returns ErrFull under backpressure, ErrClosed after Close, or a ctx error.
+	Enqueue(ctx context.Context, msg *pb.TelemetryMessage) error
 
-	// TryDequeue removes and returns the oldest buffered message. Returns
-	// (nil, false) if the buffer is empty. Never blocks.
-	TryDequeue() (*pb.TelemetryMessage, bool)
+	// Lease removes the next deliverable message and records it in-flight for
+	// consumer. Returns (nil, false) when nothing is deliverable. Never blocks.
+	Lease(consumer uint64) (*pb.TelemetryMessage, bool)
 
-	// Inspect returns a snapshot of current buffer state. The returned StoreStats
-	// is a value copy — callers receive a point-in-time view that cannot race
-	// with future mutations.
+	// Ack removes the lease for id if held by consumer. Unknown/foreign/double
+	// acks return false (no-op).
+	Ack(id, consumer uint64) bool
+
+	// ReleaseLease returns one lease (failed Send) for immediate redelivery.
+	ReleaseLease(id, consumer uint64) bool
+
+	// ReleaseConsumer requeues all of consumer's unacked leases oldest-first
+	// (disconnect path) and returns how many were requeued. Never evicts.
+	ReleaseConsumer(consumer uint64) int
+
+	// DLQList returns up to limit dead-lettered entries, oldest first.
+	// limit <= 0 returns all.
+	DLQList(limit int) []DLQEntry
+
+	// DLQReplay drains the DLQ back into the main lane as fresh work (attempts
+	// reset, id preserved), stopping early if the budget fills. Returns the
+	// number of replayed messages.
+	DLQReplay() int
+
+	// Inspect returns a snapshot of current broker state.
 	Inspect() StoreStats
 
-	// Requeue inserts msgs at the front of the buffer for oldest-first redelivery
-	// (MQ-09 / D-05 at-least-once semantics). The first element of msgs is
-	// delivered first on the next TryDequeue.
-	//
-	// When the ring is full, the newest (tail-side) entry is evicted to make room,
-	// incrementing the Dropped counter. Requeue([]) and Requeue(nil) are no-ops.
-	// Never blocks; does not touch any channel.
-	Requeue(msgs []*pb.TelemetryMessage)
-
-	// Close releases any resources held by the backend. The in-memory backend
-	// returns nil; WAL backends may flush and close file handles here.
+	// Close releases backend resources and wakes blocked producers.
 	Close() error
 }
