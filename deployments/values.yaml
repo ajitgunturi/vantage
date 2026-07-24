@@ -167,3 +167,12 @@ migrate:
   image:
     repository: vantage/migrate
     tag: dev
+
+# Nightly telemetry retention (migration 000003 partitioned gpu_metrics by
+# UTC day). Drops whole partitions past the window — O(1), no vacuum churn —
+# and pre-creates upcoming ones so the write path never waits on DDL.
+retention:
+  enabled: true
+  days: 14              # keep this many days of telemetry
+  precreateDays: 3      # daily partitions to create ahead of now
+  schedule: "17 0 * * *"  # nightly, 00:17 UTC (off the top-of-hour herd)

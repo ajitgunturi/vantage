@@ -342,10 +342,16 @@ func TestTelemetry_UsesCompositeIndex(t *testing.T) {
 	require.NoError(t, explainRows.Err())
 
 	planStr := plan.String()
-	assert.Contains(t, planStr, "idx_gpu_metrics_gpu_id_ts",
-		"expected composite index idx_gpu_metrics_gpu_id_ts; full plan:\n%s", planStr)
+	// gpu_metrics is range-partitioned (migration 000003): the parent index
+	// idx_gpu_metrics_gpu_id_ts materializes per partition with generated
+	// child names like gpu_metrics_p20260724_gpu_id_timestamp_idx — assert on
+	// the inherited column suffix, plus partition pruning to a single day.
+	assert.Contains(t, planStr, "_gpu_id_timestamp_idx",
+		"expected a child of composite index idx_gpu_metrics_gpu_id_ts; full plan:\n%s", planStr)
 	assert.Contains(t, planStr, "Index Scan",
 		"expected Index Scan on composite index; full plan:\n%s", planStr)
+	assert.NotContains(t, planStr, "Seq Scan",
+		"sequential scan must not appear; full plan:\n%s", planStr)
 
 	// Also call db.Telemetry to confirm the function exists (RED compile gate).
 	_, err = db.Telemetry(ctx, testPool, targetGPU, &startT, &endT, 10, 0)
