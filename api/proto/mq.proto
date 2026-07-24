@@ -15,6 +15,11 @@ message TelemetryMessage {
     // ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339Nano).
     // Nanosecond precision is required (STREAM-02, ADR-002): second-granularity RFC3339
     // collides concurrent readings into duplicate (gpu_id, metric_name, timestamp) natural keys.
+    //
+    // PRODUCER-OWNED: set once by the producer (Streamer) at publish time and never
+    // rewritten downstream — the broker mutates only id/delivery_attempts, and the
+    // Collector parses and persists this value verbatim. Consumer-side restamping
+    // would corrupt the telemetry timeline.
     string timestamp   = 1;
     string metric_name = 2;  // e.g., "DCGM_FI_DEV_GPU_UTIL"
     string gpu_id      = 3;  // e.g., "0"

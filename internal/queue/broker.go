@@ -28,12 +28,14 @@ var ErrClosed = errors.New("queue: broker closed")
 type OverflowPolicy string
 
 const (
-	// PolicyReject (default) refuses the new message with ErrFull — visible
+	// PolicyReject refuses the new message with ErrFull — visible
 	// backpressure; the producer keeps the message and retries with backoff.
+	// Opt-in for workloads where every record matters more than freshness.
 	PolicyReject OverflowPolicy = "reject"
-	// PolicyDropOldest evicts the oldest queued message to admit the new one —
-	// the pre-hardening behavior, now an explicit opt-in for deployments that
-	// prefer fresh data over old under overload.
+	// PolicyDropOldest (default) evicts the oldest queued message to admit the
+	// new one. This is a telemetry pipeline: under overload the oldest reading
+	// is the least valuable, so freshness wins — and every eviction is counted
+	// (DroppedOverflow) so operators can see the pressure and scale instead.
 	PolicyDropOldest OverflowPolicy = "drop-oldest"
 	// PolicyBlock parks the producer until space frees, the configured
 	// BlockTimeout elapses (→ ErrFull), or its context is cancelled.
@@ -54,7 +56,8 @@ type BrokerConfig struct {
 	// Capacity is the total message budget: queued (main + retry) plus leased
 	// (in-flight) messages together never exceed it (capacity accounting).
 	Capacity int
-	// Policy is the Enqueue overflow policy. Default: PolicyReject.
+	// Policy is the Enqueue overflow policy. Default: PolicyDropOldest
+	// (telemetry freshness-first; see the policy constants).
 	Policy OverflowPolicy
 	// BlockTimeout bounds how long PolicyBlock waits for space. Default: 1s.
 	BlockTimeout time.Duration
@@ -82,7 +85,7 @@ type BrokerConfig struct {
 
 func (cfg *BrokerConfig) applyDefaults() {
 	if cfg.Policy == "" {
-		cfg.Policy = PolicyReject
+		cfg.Policy = PolicyDropOldest
 	}
 	if cfg.BlockTimeout <= 0 {
 		cfg.BlockTimeout = time.Second
@@ -147,8 +150,9 @@ type DLQEntry struct {
 // broker-owned lease table — all under one mutex. Hardening invariants:
 //
 //   - Admission control: main + retry + in-flight <= Capacity. Enqueue at a
-//     full budget applies the overflow policy (reject by default) instead of
-//     silently evicting.
+//     full budget applies the overflow policy — drop-oldest by default
+//     (telemetry freshness-first) with every eviction counted; reject/block
+//     opt-ins give lossless backpressure instead.
 //   - Because leases count against the budget, requeuing a consumer's unacked
 //     leases ALWAYS has headroom — the requeue path can never evict unrelated
 //     messages. DroppedRequeue is a tripwire counter and must stay 0.
@@ -265,8 +269,9 @@ func (b *Broker) requeue(e *entry, delay time.Duration) {
 
 // Enqueue admits msg into the main lane under the capacity budget, assigning
 // its stable broker id. At a full budget the overflow policy decides:
-// reject → ErrFull; drop-oldest → evict the oldest QUEUED entry (never a
-// lease); block → wait for space up to BlockTimeout / ctx cancellation.
+// drop-oldest (default) → evict the oldest QUEUED entry (never a lease);
+// reject → ErrFull; block → wait for space up to BlockTimeout / ctx
+// cancellation.
 func (b *Broker) Enqueue(ctx context.Context, msg *pb.TelemetryMessage) error {
 	var timeout <-chan time.Time
 	b.mu.Lock()

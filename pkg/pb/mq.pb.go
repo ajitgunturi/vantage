@@ -33,6 +33,11 @@ type TelemetryMessage struct {
 	// ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339Nano).
 	// Nanosecond precision is required (STREAM-02, ADR-002): second-granularity RFC3339
 	// collides concurrent readings into duplicate (gpu_id, metric_name, timestamp) natural keys.
+	//
+	// PRODUCER-OWNED: set once by the producer (Streamer) at publish time and never
+	// rewritten downstream — the broker mutates only id/delivery_attempts, and the
+	// Collector parses and persists this value verbatim. Consumer-side restamping
+	// would corrupt the telemetry timeline.
 	Timestamp  string  `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	MetricName string  `protobuf:"bytes,2,opt,name=metric_name,json=metricName,proto3" json:"metric_name,omitempty"` // e.g., "DCGM_FI_DEV_GPU_UTIL"
 	GpuId      string  `protobuf:"bytes,3,opt,name=gpu_id,json=gpuId,proto3" json:"gpu_id,omitempty"`                // e.g., "0"

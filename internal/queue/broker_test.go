@@ -24,10 +24,10 @@ func newTestBroker(t *testing.T, cfg BrokerConfig) *Broker {
 	return b
 }
 
-// default policy is reject — a full ring surfaces backpressure to the
-// producer instead of silently evicting the oldest message.
+// The reject policy (opt-in for lossless workloads) surfaces backpressure to
+// the producer instead of evicting the oldest message.
 func TestEnqueueRejectWhenFull(t *testing.T) {
-	b := newTestBroker(t, BrokerConfig{Capacity: 2})
+	b := newTestBroker(t, BrokerConfig{Capacity: 2, Policy: PolicyReject})
 	ctx := context.Background()
 
 	require.NoError(t, b.Enqueue(ctx, msg("m1")))
@@ -45,7 +45,7 @@ func TestEnqueueRejectWhenFull(t *testing.T) {
 // leased (in-flight) messages count against capacity — admission uses
 // depth + inFlight, so requeue always has guaranteed headroom.
 func TestCapacityAccountingIncludesInFlight(t *testing.T) {
-	b := newTestBroker(t, BrokerConfig{Capacity: 4})
+	b := newTestBroker(t, BrokerConfig{Capacity: 4, Policy: PolicyReject})
 	ctx := context.Background()
 
 	for i := 0; i < 4; i++ {
@@ -104,7 +104,9 @@ func TestReleaseConsumerNeverEvicts(t *testing.T) {
 	}
 }
 
-// drop-oldest remains available as an explicit opt-in policy.
+// Drop-oldest is the default for this telemetry pipeline: under overload the
+// oldest reading is the least valuable, so the freshest data is retained and
+// every eviction is counted.
 func TestDropOldestPolicy(t *testing.T) {
 	b := newTestBroker(t, BrokerConfig{Capacity: 3, Policy: PolicyDropOldest})
 	ctx := context.Background()
@@ -519,7 +521,8 @@ func TestDLQOverflowEvictsOldest(t *testing.T) {
 func TestRetryCountsAgainstBudget(t *testing.T) {
 	clk := newFakeClock()
 	b := newTestBroker(t, BrokerConfig{
-		Capacity: 2, RetryBackoffBase: time.Second, RetryBackoffMax: time.Second, Clock: clk.Now,
+		Capacity: 2, Policy: PolicyReject,
+		RetryBackoffBase: time.Second, RetryBackoffMax: time.Second, Clock: clk.Now,
 	})
 	ctx := context.Background()
 	require.NoError(t, b.Enqueue(ctx, msg("m1")))
@@ -631,4 +634,50 @@ func TestSweepExpiredRoutesToDLQ(t *testing.T) {
 	assert.Equal(t, 1, st.DLQDepth)
 	assert.Equal(t, 0, st.RetryDepth)
 	assert.Equal(t, int64(1), st.DeadLetteredTotal)
+}
+
+// Timestamps are producer-owned: across enqueue, lease, requeue, and
+// redelivery the broker mutates ONLY id and delivery_attempts — the payload
+// (timestamp above all) passes through verbatim. Broker-side restamping would
+// corrupt the telemetry timeline.
+func TestBrokerNeverMutatesPayload(t *testing.T) {
+	b := newTestBroker(t, BrokerConfig{Capacity: 4, RetryBackoffBase: time.Nanosecond, RetryBackoffMax: time.Nanosecond})
+	const producerTS = "2026-07-24T01:02:03.123456789Z"
+	in := &pb.TelemetryMessage{
+		Timestamp: producerTS, MetricName: "DCGM_FI_DEV_GPU_UTIL",
+		GpuId: "0", Uuid: "GPU-ts-owned", Value: 42.5,
+	}
+	require.NoError(t, b.Enqueue(context.Background(), in))
+
+	m, ok := b.Lease(1)
+	require.True(t, ok)
+	assert.Equal(t, producerTS, m.GetTimestamp(), "lease must not restamp")
+	b.ReleaseConsumer(1)
+
+	m, ok = b.Lease(2)
+	require.True(t, ok)
+	assert.Equal(t, producerTS, m.GetTimestamp(), "redelivery must not restamp")
+	assert.Equal(t, 42.5, m.GetValue())
+	assert.Equal(t, "GPU-ts-owned", m.GetUuid())
+}
+
+// The DEFAULT overflow policy is drop-oldest: telemetry freshness-first — a
+// full budget admits new production by evicting the oldest queued reading,
+// counted in DroppedOverflow, with no producer error.
+func TestDefaultPolicyIsDropOldest(t *testing.T) {
+	b := newTestBroker(t, BrokerConfig{Capacity: 2})
+	ctx := context.Background()
+
+	require.NoError(t, b.Enqueue(ctx, msg("old-1")))
+	require.NoError(t, b.Enqueue(ctx, msg("old-2")))
+	require.NoError(t, b.Enqueue(ctx, msg("fresh")), "default policy must admit fresh telemetry")
+
+	st := b.Inspect()
+	assert.Equal(t, int64(1), st.DroppedOverflow, "the eviction must be counted")
+	assert.Equal(t, int64(0), st.RejectedTotal)
+	assert.Equal(t, 2, st.Depth)
+
+	m, ok := b.Lease(1)
+	require.True(t, ok)
+	assert.Equal(t, "old-2", m.GetMetricName(), "oldest reading evicted; newer ones retained")
 }

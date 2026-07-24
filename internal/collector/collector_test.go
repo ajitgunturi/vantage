@@ -724,3 +724,42 @@ func TestTransientErrorNeverDeadLetters(t *testing.T) {
 		"SELECT count(*) FROM gpu_metrics_dlq").Scan(&dlqCount))
 	require.Equal(t, 0, dlqCount, "transient failures must never dead-letter")
 }
+
+// TestProducerTimestampPreserved pins the producer-owned timestamp contract:
+// the value the Streamer stamps at publish time is what lands in gpu_metrics —
+// the Collector parses and persists it verbatim (truncated to Postgres's
+// microsecond TIMESTAMPTZ precision, ADR-002) and never substitutes its own
+// clock. Consumer-side restamping would corrupt the telemetry timeline.
+func TestProducerTimestampPreserved(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { restoreDB(ctx, t) })
+
+	conn, _ := newBufconnMQ(t)
+	client := pb.NewMQServiceClient(conn)
+
+	// A fixed producer timestamp, deliberately far from now() so any
+	// consumer-side restamp is unmistakable.
+	producerTS := time.Date(2026, 1, 15, 6, 30, 45, 123456000, time.UTC)
+	msg := &pb.TelemetryMessage{
+		Uuid:       "GPU-tsown-0000-0000-0000-000000000000",
+		GpuId:      "0",
+		MetricName: "DCGM_FI_DEV_GPU_UTIL",
+		Timestamp:  producerTS.Format(time.RFC3339Nano),
+		Value:      7,
+	}
+	_, err := client.Produce(ctx, &pb.ProduceRequest{Message: msg})
+	require.NoError(t, err)
+
+	cfg := collector.Config{BatchSize: 1, FlushMS: 100, Credit: 8}
+	consumeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_ = collector.Consume(consumeCtx, client, testPool, cfg) //nolint:errcheck
+
+	var persisted time.Time
+	require.NoError(t, testPool.QueryRow(ctx,
+		"SELECT timestamp FROM gpu_metrics WHERE gpu_id = $1",
+		"GPU-tsown-0000-0000-0000-000000000000").Scan(&persisted))
+	require.True(t, persisted.Equal(producerTS),
+		"persisted timestamp %s must equal the producer's stamp %s — the consumer must never restamp",
+		persisted, producerTS)
+}
