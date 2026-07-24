@@ -29,11 +29,13 @@ Built with `make build`.
 | `COLLECTOR_CREDIT` | `100` | Initial in-flight window (must be ≥ BATCH_SIZE) |
 | `COLLECTOR_HEALTH_ADDR` | `:9001` | Health-endpoint listen address (`/healthz`, `/readyz`) |
 
-## Exactly-once delivery (the key property)
+## Effectively-once persistence (the key property)
 
-With multiple Collector instances, each telemetry reading is persisted **exactly once** even under
-at-least-once MQ redelivery. The Collector's `ON CONFLICT (gpu_id, metric_name, timestamp)
-DO NOTHING` SQL clause is the enforcement point. The E2E test (QA-03) proves this end-to-end under
+Delivery from the MQ is **at-least-once** — redelivery after a consumer disconnect can hand the
+same message to a Collector more than once. What the Collector guarantees is **effectively-once
+persistence**: the idempotent `ON CONFLICT (gpu_id, metric_name, timestamp) DO NOTHING` upsert
+absorbs redeliveries, so each telemetry reading lands in Postgres once — within the granularity
+of that natural key. The E2E test (QA-03) proves this end-to-end under
 `test/e2e/pipeline_test.go` (run via `make e2e` — requires Docker/Rancher Desktop).
 
 > **Concurrent Streamers:** Under ≥2 simultaneous Streamer instances, nanosecond-level timestamp

@@ -1,6 +1,6 @@
 # ADR-001: Bidirectional `Consume` with broker-side at-least-once delivery
 
-**Status:** Accepted (owner-approved deviation from the original brief)
+**Status:** Accepted (owner-approved deviation from the original brief; amended 2026-07-24: guarantee boundaries documented)
 **Date:** 2026-06-28
 **Phase:** 01.1 — MQ At-Least-Once Delivery — Bidi Consume + Ack
 **Supersedes (in part):** the Phase-1 MQ delivery contract ("server-side
@@ -85,6 +85,27 @@ Phase 6).
 - **Phase 6 WAL overlap:** Phase 6 was framed as "at-least-once via replay." With
   delivery-level at-least-once now owned here, Phase 6 narrows to **crash
   durability only** — reconciled when Phase 6 is planned (`/gsd-plan-phase 6`).
+
+*Amendment (2026-07-24): Guarantee boundaries.* The at-least-once guarantee is
+scoped by ring-buffer capacity and broker volatility. Three boundary conditions
+are accepted consequences of the in-memory, fixed-capacity design:
+
+1. **Producer overload → drop-oldest.** `Enqueue` on a full ring
+   (`MQ_BUFFER_SIZE`, default 10000) evicts the oldest buffered message; the
+   producer is not signaled (`Produce` still returns accepted). Mitigation path:
+   producer backpressure (`ResourceExhausted` / `accepted=false` on ring-full) —
+   tracked as future work.
+2. **Requeue at full ring → drop-newest.** Re-enqueueing unacked leases after a
+   consumer disconnect evicts the newest (tail-side) entries when the ring is
+   full, so a disconnect near capacity can destroy unrelated fresh messages.
+   Mitigation path: capacity accounting that counts in-flight leases against
+   ring capacity, guaranteeing requeue headroom.
+3. **Broker restart → total loss** of ring and lease state (single replica,
+   in-memory). Accepted in ADR-009; the opt-in WAL backend that closes this is
+   deferred to Phase 7.
+
+Both eviction modes increment the `dropped_total` inspect counter — the
+operational signal that a boundary was crossed.
 
 ## Compliance
 

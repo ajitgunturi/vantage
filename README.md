@@ -161,11 +161,12 @@ startup commands, and the smoke suite without kind.
 |---|---|
 | [docs/mq.readme.md](docs/mq.readme.md) | MQ config, delivery semantics, inspect counters, mqprobe |
 | [docs/streamer.readme.md](docs/streamer.readme.md) | Streamer config, CSV prereqs, restamping |
-| [docs/collector.readme.md](docs/collector.readme.md) | Collector config, exactly-once semantics |
+| [docs/collector.readme.md](docs/collector.readme.md) | Collector config, effectively-once persistence |
 | [docs/gateway.readme.md](docs/gateway.readme.md) | Gateway endpoints, pagination, Swagger |
 | [docs/development.readme.md](docs/development.readme.md) | Repo layout, storage, smoke suite, testing, DevOps, CI |
 | [docs/FUTURE.md](docs/FUTURE.md) | Designed-but-deferred: opt-in WAL + multi-schema messages |
 | [docs/adr/README.md](docs/adr/README.md) | All ten architectural decision records |
+| [docs/DEVIATIONS.md](docs/DEVIATIONS.md) | Deliberate deviations from the brief |
 | [docs/AI_USAGE.md](docs/AI_USAGE.md) | Scope, model, oversight, known limitations |
 | [docs/AI_PROMPTS.md](docs/AI_PROMPTS.md) | Verbatim prompt log across all phases |
 | [instructions.md](instructions.md) | Authoritative project spec |

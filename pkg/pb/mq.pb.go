@@ -29,19 +29,22 @@ const (
 // WARNING: Field numbers are stable once deployed. Never renumber fields.
 // Adding new fields is backwards compatible; removing or renumbering is not.
 type TelemetryMessage struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Timestamp  string                 `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                     // ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339)
-	MetricName string                 `protobuf:"bytes,2,opt,name=metric_name,json=metricName,proto3" json:"metric_name,omitempty"` // e.g., "DCGM_FI_DEV_GPU_UTIL"
-	GpuId      string                 `protobuf:"bytes,3,opt,name=gpu_id,json=gpuId,proto3" json:"gpu_id,omitempty"`                // e.g., "0"
-	Device     string                 `protobuf:"bytes,4,opt,name=device,proto3" json:"device,omitempty"`                           // e.g., "nvidia0"
-	Uuid       string                 `protobuf:"bytes,5,opt,name=uuid,proto3" json:"uuid,omitempty"`                               // GPU UUID
-	ModelName  string                 `protobuf:"bytes,6,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`    // e.g., "NVIDIA H100 80GB HBM3"
-	Hostname   string                 `protobuf:"bytes,7,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	Container  string                 `protobuf:"bytes,8,opt,name=container,proto3" json:"container,omitempty"`
-	Pod        string                 `protobuf:"bytes,9,opt,name=pod,proto3" json:"pod,omitempty"`
-	Namespace  string                 `protobuf:"bytes,10,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Value      float64                `protobuf:"fixed64,11,opt,name=value,proto3" json:"value,omitempty"`                        // metric value (GPU utilization %, memory bytes, etc.)
-	LabelsRaw  string                 `protobuf:"bytes,12,opt,name=labels_raw,json=labelsRaw,proto3" json:"labels_raw,omitempty"` // raw Prometheus label string
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ISO 8601 UTC; restamped by Streamer with time.Now().UTC().Format(time.RFC3339Nano).
+	// Nanosecond precision is required (STREAM-02, ADR-002): second-granularity RFC3339
+	// collides concurrent readings into duplicate (gpu_id, metric_name, timestamp) natural keys.
+	Timestamp  string  `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	MetricName string  `protobuf:"bytes,2,opt,name=metric_name,json=metricName,proto3" json:"metric_name,omitempty"` // e.g., "DCGM_FI_DEV_GPU_UTIL"
+	GpuId      string  `protobuf:"bytes,3,opt,name=gpu_id,json=gpuId,proto3" json:"gpu_id,omitempty"`                // e.g., "0"
+	Device     string  `protobuf:"bytes,4,opt,name=device,proto3" json:"device,omitempty"`                           // e.g., "nvidia0"
+	Uuid       string  `protobuf:"bytes,5,opt,name=uuid,proto3" json:"uuid,omitempty"`                               // GPU UUID
+	ModelName  string  `protobuf:"bytes,6,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`    // e.g., "NVIDIA H100 80GB HBM3"
+	Hostname   string  `protobuf:"bytes,7,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	Container  string  `protobuf:"bytes,8,opt,name=container,proto3" json:"container,omitempty"`
+	Pod        string  `protobuf:"bytes,9,opt,name=pod,proto3" json:"pod,omitempty"`
+	Namespace  string  `protobuf:"bytes,10,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Value      float64 `protobuf:"fixed64,11,opt,name=value,proto3" json:"value,omitempty"`                        // metric value (GPU utilization %, memory bytes, etc.)
+	LabelsRaw  string  `protobuf:"bytes,12,opt,name=labels_raw,json=labelsRaw,proto3" json:"labels_raw,omitempty"` // raw Prometheus label string
 	// Broker-assigned monotonic delivery ID (D-06, ADR-001).
 	// Set by MQServer on dequeue; zero from Streamer (ignored by broker; overwritten on assign).
 	// Field 13 keeps 1-byte encoding (fields 1-15 use varint tag with 1 byte; 16+ use 2 bytes).
@@ -216,8 +219,13 @@ func (x *ProduceRequest) GetMessage() *TelemetryMessage {
 }
 
 type ProduceResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"` // true = enqueued (or drop-oldest fired); false only on validation error
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Always true today: enqueue succeeds (drop-oldest may have silently evicted the oldest
+	// buffered message to make room, and that eviction is NOT signaled here). Validation
+	// failures surface as gRPC InvalidArgument errors, never as accepted=false — clients
+	// cannot branch on this field. Reserved for future backpressure semantics
+	// (ring-full → accepted=false / ResourceExhausted).
+	Accepted      bool `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
