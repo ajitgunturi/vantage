@@ -351,3 +351,89 @@ func TestTelemetry_UsesCompositeIndex(t *testing.T) {
 	_, err = db.Telemetry(ctx, testPool, targetGPU, &startT, &endT, 10, 0)
 	require.NoError(t, err, "db.Telemetry must succeed on a seeded GPU")
 }
+
+// seedMetric inserts one row with an explicit metric name — for keyset
+// tie-break tests where multiple metrics share one timestamp.
+func seedMetric(t *testing.T, gpuID, metric string, ts time.Time) {
+	t.Helper()
+	_, err := testPool.Exec(context.Background(), models.InsertSQL,
+		gpuID, ts.UTC(), metric, float64(1),
+		"nvidia0", "NVIDIA H100", "test-host", "", "", "", "",
+	)
+	require.NoError(t, err)
+}
+
+// TestTelemetryAfter_KeysetWalk pages through 7 rows (including two metrics
+// sharing one timestamp — the tie the metric_name tiebreaker exists for)
+// with page size 3, asserting pages are disjoint, ordered, and complete.
+func TestTelemetryAfter_KeysetWalk(t *testing.T) {
+	t.Cleanup(func() { restoreDB(context.Background(), t) })
+	const gpu = "GPU-keyset-0000"
+	base := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// 5 distinct timestamps + one timestamp carrying TWO metrics (tie).
+	for i := 0; i < 5; i++ {
+		seedMetric(t, gpu, "DCGM_FI_DEV_GPU_UTIL", base.Add(time.Duration(i)*time.Second))
+	}
+	tieTS := base.Add(10 * time.Second)
+	seedMetric(t, gpu, "DCGM_FI_DEV_MEM_COPY_UTIL", tieTS)
+	seedMetric(t, gpu, "DCGM_FI_DEV_GPU_UTIL", tieTS)
+
+	ctx := context.Background()
+	// First page via the offset-free entry point (offset 0).
+	page1, err := db.Telemetry(ctx, testPool, gpu, nil, nil, 3, 0)
+	require.NoError(t, err)
+	require.Len(t, page1, 3)
+
+	var all []models.GpuMetric
+	all = append(all, page1...)
+	last := page1[len(page1)-1]
+	for {
+		page, err := db.TelemetryAfter(ctx, testPool, gpu, nil, nil, last.Timestamp, last.MetricName, 3)
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		all = append(all, page...)
+		last = page[len(page)-1]
+	}
+
+	require.Len(t, all, 7, "keyset walk must visit every row exactly once")
+	seen := map[string]bool{}
+	for i, m := range all {
+		key := m.Timestamp.Format(time.RFC3339Nano) + "/" + m.MetricName
+		require.False(t, seen[key], "row %s must not repeat across pages", key)
+		seen[key] = true
+		if i > 0 {
+			prev := all[i-1]
+			require.False(t, m.Timestamp.After(prev.Timestamp), "timestamps must be non-increasing")
+			if m.Timestamp.Equal(prev.Timestamp) {
+				require.Less(t, m.MetricName, prev.MetricName, "ties break by metric_name DESC")
+			}
+		}
+	}
+	// The tied timestamp must be the newest and both its metrics adjacent.
+	require.True(t, all[0].Timestamp.Equal(tieTS))
+	require.True(t, all[1].Timestamp.Equal(tieTS))
+	require.Equal(t, "DCGM_FI_DEV_MEM_COPY_UTIL", all[0].MetricName, "DESC tie-break: MEM > GPU alphabetically")
+}
+
+// TestTelemetryAfter_WindowFilter: the keyset predicate composes with the
+// time-window bounds.
+func TestTelemetryAfter_WindowFilter(t *testing.T) {
+	t.Cleanup(func() { restoreDB(context.Background(), t) })
+	const gpu = "GPU-keyset-win"
+	base := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 5; i++ {
+		seedMetric(t, gpu, "DCGM_FI_DEV_GPU_UTIL", base.Add(time.Duration(i)*time.Minute))
+	}
+	start := base.Add(1 * time.Minute)
+	end := base.Add(3 * time.Minute)
+
+	// Cursor at the newest in-window row → remaining in-window rows only.
+	page, err := db.TelemetryAfter(context.Background(), testPool, gpu, &start, &end,
+		base.Add(3*time.Minute), "DCGM_FI_DEV_GPU_UTIL", 10)
+	require.NoError(t, err)
+	require.Len(t, page, 2, "only the older in-window rows remain after the cursor")
+	assert.True(t, page[0].Timestamp.Equal(base.Add(2*time.Minute)))
+	assert.True(t, page[1].Timestamp.Equal(base.Add(1*time.Minute)))
+}
