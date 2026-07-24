@@ -85,6 +85,14 @@ collector:
   # replicaCount: number of Collector replicas (each instance gets unique messages from MQ).
   # Override with --set collector.replicaCount=N for throughput scale-out.
   replicaCount: 1
+  # Queue-depth autoscaling (requires kube-prometheus-stack + prometheus-adapter;
+  # see deployments/monitoring/README.md). CPU is the wrong signal for a
+  # consumer — the HPA targets the external metric mq_queue_backlog instead.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetBacklogPerReplica: 2000
   image:
     repository: vantage/collector
     tag: dev
