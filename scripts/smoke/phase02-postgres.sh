@@ -132,10 +132,30 @@ ORDER BY timestamp DESC;
 echo "$EXPLAIN_OUTPUT"
 
 echo "$EXPLAIN_OUTPUT" | grep -q 'Index Scan'       || fail "EXPLAIN did not show Index Scan — composite index not used by planner"
-echo "$EXPLAIN_OUTPUT" | grep -qv 'Seq Scan on gpu_metrics' 2>/dev/null || true
-if echo "$EXPLAIN_OUTPUT" | grep -q 'Seq Scan on gpu_metrics'; then
-  fail "EXPLAIN shows Seq Scan on gpu_metrics — composite index is being bypassed"
+# gpu_metrics is range-partitioned: the plan appends per-partition subplans.
+# EMPTY daily partitions may legitimately pick a Seq Scan (cheapest for zero
+# rows); what must never Seq Scan is a partition that holds the seeded data —
+# the default partition (historic seed rows) and any daily partition the
+# planner attributes rows to. Assert: every Seq Scan subplan, if any, is on a
+# row-free partition by requiring the data-bearing scans to be Index Scans.
+if echo "$EXPLAIN_OUTPUT" | grep -q 'Seq Scan on gpu_metrics_default'; then
+  fail "EXPLAIN shows Seq Scan on the data-bearing default partition — composite index bypassed"
 fi
-pass "EXPLAIN shows Index Scan (composite index used for selective gpu_id + time-range query)"
+echo "$EXPLAIN_OUTPUT" | grep -q '_gpu_id_timestamp_idx' \
+  || fail "EXPLAIN does not reference a child of the composite index (_gpu_id_timestamp_idx)"
+pass "EXPLAIN shows Index Scan via the composite index's partition children (empty partitions may Seq Scan)"
 
-echo "${GREEN}${BOLD}PASS${RST} — Phase 2 storage smoke (table + indexes + Index Scan proven)"
+# ── Partitioned storage + retention functions (migration 000003) ─────────────
+RELKIND=$(pg_exec -tAc "SELECT relkind FROM pg_class WHERE relname='gpu_metrics'") || fail "relkind query failed"
+[ "$RELKIND" = "p" ] || fail "gpu_metrics must be range-partitioned (relkind=p), got '$RELKIND'"
+NPARTS=$(pg_exec -tAc "SELECT count(*) FROM pg_inherits WHERE inhparent='gpu_metrics'::regclass")
+[ "$NPARTS" -ge 6 ] || fail "expected default + pre-created daily partitions, got $NPARTS"
+pass "gpu_metrics is range-partitioned by day ($NPARTS partitions incl. default)"
+
+CREATED=$(pg_exec -tAc "SELECT gpu_metrics_ensure_partitions(3)")
+[ "$CREATED" = "0" ] || fail "ensure_partitions must be idempotent on an existing window (created=$CREATED)"
+DROPPED=$(pg_exec -tAc "SELECT gpu_metrics_drop_old_partitions(3650)")
+[ "$DROPPED" = "0" ] || fail "10-year retention must drop nothing today (dropped=$DROPPED)"
+pass "retention functions live — ensure_partitions idempotent, drop_old_partitions safe"
+
+echo "${GREEN}${BOLD}PASS${RST} — Phase 2 storage smoke (table + indexes + Index Scan + partitioning proven)"

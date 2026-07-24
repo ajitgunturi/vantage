@@ -1,4 +1,4 @@
-{{- if .Values.retention.enabled }}
+{{- if and .Values.retention .Values.retention.enabled }}
 # Nightly telemetry retention: O(1) partition drops + forward partition
 # pre-creation. Owned by the umbrella chart for the same reason as the migrate
 # Job — the schema is a shared concern.

@@ -63,3 +63,13 @@ Readiness means the MQ stream has been dialed and entered:
 curl -s http://localhost:9000/healthz
 curl -s http://localhost:9000/readyz
 ```
+
+## Batched publish & metrics
+
+Rows publish in batches of `STREAMER_BATCH_SIZE` (default 100) via the MQ's
+`ProduceBatch` RPC (ADR-013) — set `1` for the legacy one-RPC-per-row path.
+Rows are still restamped individually at CSV *read* time, so batching never
+collides timestamps. `GET /metrics` on the health port (ADR-014):
+`streamer_rows_produced_total`, `streamer_rows_skipped_total`, and
+`streamer_produce_retries_total` (the client-side view of broker
+backpressure).

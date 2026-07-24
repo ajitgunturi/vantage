@@ -19,6 +19,9 @@ alternatives that were rejected.
 | [ADR-009](ADR-009-opt-in-wal-extension.md) | Opt-In WAL Persistence Backend Behind the `Store` Interface | Accepted (pending — Phase 7) | 2026-06-27 | roadmap / 7 |
 | [ADR-010](ADR-010-telemetrypage-pagination-envelope.md) | `TelemetryPage` Pagination Envelope with Limit+1 Sentinel | Accepted | 2026-07-03 | 6 |
 | [ADR-011](ADR-011-broker-delivery-hardening.md) | Broker Delivery Hardening — Backpressure, Retry/DLQ Lanes, Lease TTL, preStop Drain | Accepted | 2026-07-24 | post-v1 |
+| [ADR-012](ADR-012-daily-partitioning-retention.md) | Daily Range Partitioning of `gpu_metrics` with O(1) Partition-Drop Retention | Accepted | 2026-07-24 | post-v1 |
+| [ADR-013](ADR-013-batch-publish-contract.md) | `ProduceBatch` — Batched Publish with Partial-Accept Contract | Accepted | 2026-07-24 | post-v1 |
+| [ADR-014](ADR-014-prometheus-metrics-queue-depth-hpa.md) | Prometheus Metrics on Every Service; Collector Autoscaling on Queue Backlog | Accepted | 2026-07-24 | post-v1 |
 
 > ADR-003 through ADR-010 were backfilled on 2026-07-03. The decisions themselves
 > were made in the phases listed above; only the written records are retroactive.

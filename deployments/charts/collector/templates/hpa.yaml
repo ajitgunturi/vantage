@@ -1,4 +1,4 @@
-{{- if .Values.autoscaling.enabled }}
+{{- if and .Values.autoscaling .Values.autoscaling.enabled }}
 # Collector HPA — scales on QUEUE DEPTH, not CPU.
 #
 # CPU is the wrong signal for a consumer: a Collector bottlenecked on Postgres

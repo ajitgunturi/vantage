@@ -99,6 +99,24 @@ Replay preserves each message's stable id, resets its attempts, and respects the
 (partial replay reports the remainder). DLQ overflow evicts the oldest dead-lettered entry
 (`dlq_evicted`, bounded lane — the DLQ cannot grow without limit).
 
+## Batched publish
+
+`ProduceBatch` (unary, up to 1000 messages) is the high-throughput publish
+path — one round-trip per batch instead of one `Produce` per reading
+(ADR-013). Admission is in-order under the same overflow policy; under the
+`reject` policy a full budget returns the **accepted prefix** count and the
+caller retries the rejected **suffix** after backoff (one `rejected_total`
+event per refusal). The Streamer publishes batches of `STREAMER_BATCH_SIZE`
+(default 100).
+
+## Prometheus metrics
+
+`GET /metrics` exposes every inspect counter in Prometheus form (ADR-014):
+depth/retry/DLQ gauges, in-flight, capacity, active consumers, and the
+produced/rejected/delivered/consumed/redelivered/dropped-by-cause/
+dead-lettered/lease-expired counters. Series derive from the same `Stats()`
+snapshot as `/api/v1/queue/inspect` at scrape time — they cannot disagree.
+
 ## Inspect the queue
 
 ```sh

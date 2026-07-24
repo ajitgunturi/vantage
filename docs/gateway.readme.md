@@ -150,3 +150,19 @@ make smoke-04
 7. Asserts `GET /swagger/doc.json` → 200 + valid JSON spec with ≥ 2 paths
 8. Prints gateway URL, GPU count, and Swagger UI URL
 9. Leaves Postgres running; kills only the gateway process on exit
+
+## Cursor (keyset) pagination
+
+For deep walks prefer `?cursor=` over `?offset=` (ADR-010 amendment): pass a
+page's `pagination.next_cursor` back verbatim — O(page) cost via an index
+seek instead of OFFSET's O(offset) walk, stable under live ingest. `cursor`
+and `offset` are mutually exclusive; cursor mode omits `pagination.total`
+(that COUNT is the cost keyset avoids). `next_cursor` is emitted in both
+modes whenever another page exists.
+
+## Prometheus metrics
+
+`GET /metrics` (ADR-014) serves a request-latency histogram
+`gateway_http_request_duration_seconds{route,method,status}` labelled by chi
+route *pattern* (e.g. `/api/v1/gpus/{id}/telemetry`) so cardinality stays
+bounded regardless of GPU count.
