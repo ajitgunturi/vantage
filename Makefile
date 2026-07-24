@@ -94,10 +94,11 @@ coverage: check-env ## Enforce >= $(COVERAGE_THRESHOLD)% line coverage on intern
 e2e: check-env ## Run end-to-end pipeline tests (requires Docker — see .env, top-of-file comment)
 	go test -race -tags=integration -count=1 -v ./test/e2e/...
 
-smoke: ## Run every phase's manual smoke check (all phases shipped so far)
+smoke: ## Run every phase's smoke check, then leave a running local stack (SMOKE_NO_STACK=1 to skip)
 	@found=0; for f in scripts/smoke/phase*.sh; do \
 		[ -e "$$f" ] || continue; found=1; echo "== $$f =="; bash "$$f" || exit 1; done; \
 	[ "$$found" = 1 ] || echo "no smoke scripts yet under scripts/smoke/"
+	@if [ "$${SMOKE_NO_STACK:-0}" != "1" ]; then $(MAKE) stack-up; fi
 
 smoke-%: ## Run one phase's manual smoke check, e.g. make smoke-01
 	@found=0; for f in scripts/smoke/phase$*-*.sh; do \
@@ -192,3 +193,36 @@ soak: check-env ## Run sustained pipeline soak (SOAK_DURATION=60, SOAK_STREAMERS
 
 test-harness: check-env ## Run live-infrastructure E2E harness (requires Docker)
 	go test -race -tags=e2e -count=1 -v -timeout 120s ./test/harness/...
+
+# ── Local running stack (manual testing) ─────────────────────────────────────
+STACK_DIR := .stack
+STACK_DSN := postgres://vantage:vantage@localhost:5432/vantage?sslmode=disable
+
+stack-up: build dev-up ## Start all four services locally against dev Postgres (logs+pids in .stack/)
+	@mkdir -p $(STACK_DIR)
+	@echo "waiting for postgres..."; \
+	for i in $$(seq 1 30); do \
+	  docker compose exec -T postgres pg_isready -U vantage >/dev/null 2>&1 && break; sleep 1; done
+	@VANTAGE_DB_DSN="$(STACK_DSN)" go run ./cmd/migrate && echo "migrations applied"
+	@MQ_HTTP_ADDR=:8081 nohup ./bin/mq            > $(STACK_DIR)/mq.log        2>&1 & echo $$! > $(STACK_DIR)/mq.pid
+	@VANTAGE_DB_DSN="$(STACK_DSN)" COLLECTOR_MQ_ADDR=127.0.0.1:50051 \
+	  nohup ./bin/collector                       > $(STACK_DIR)/collector.log 2>&1 & echo $$! > $(STACK_DIR)/collector.pid
+	@STREAMER_MQ_ADDR=127.0.0.1:50051 STREAMER_CSV_PATH=testdata/fixture.csv STREAMER_LOOP_DELAY_MS=100 \
+	  nohup ./bin/streamer                        > $(STACK_DIR)/streamer.log  2>&1 & echo $$! > $(STACK_DIR)/streamer.pid
+	@VANTAGE_DB_DSN="$(STACK_DSN)" \
+	  nohup ./bin/gateway                         > $(STACK_DIR)/gateway.log   2>&1 & echo $$! > $(STACK_DIR)/gateway.pid
+	@sleep 1
+	@echo ""
+	@echo "── local stack running (import Insomnia_Collection.yaml for ready-made requests) ──"
+	@echo "  Gateway    http://localhost:8080   (/api/v1/gpus, /swagger/, /metrics)"
+	@echo "  MQ         http://localhost:8081   (/api/v1/queue/inspect, /api/v1/queue/dlq, /metrics)  gRPC :50051"
+	@echo "  Streamer   http://localhost:9000   (/healthz, /metrics)"
+	@echo "  Collector  http://localhost:9001   (/healthz, /metrics)"
+	@echo "  Postgres   localhost:5432          (vantage/vantage)"
+	@echo "  logs: $(STACK_DIR)/*.log — stop with: make stack-down"
+
+stack-down: ## Stop the local stack (leaves dev Postgres running; make dev-down for that)
+	@for f in $(STACK_DIR)/*.pid; do \
+	  [ -e "$$f" ] || continue; \
+	  kill "$$(cat $$f)" 2>/dev/null || true; rm -f "$$f"; \
+	done; echo "stack stopped (postgres still up — 'make dev-down' to stop it)"
